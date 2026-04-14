@@ -697,14 +697,23 @@ function syncTableAssignments(shouldSave = true) {
   const desiredAssignments = buildStableTableAssignmentMap(groupMatches.value, activeTableCount.value)
   let changed = false
   const nextMatches = {}
+  // Collect matches that got a fresh table assignment (null → number).
+  // We persist these immediately so the backend knows before the next WebSocket
+  // broadcast arrives, which prevents in-progress matches from being re-shuffled.
+  const newlyAssigned = []
 
   for (const [groupName, matches] of Object.entries(groupMatches.value || {})) {
     nextMatches[groupName] = (matches || []).map(match => {
-      const desiredTableNo = match.winner ? null : (desiredAssignments.get(matchKey({ ...match, group_name: match.group_name || groupName })) ?? null)
+      const key = matchKey({ ...match, group_name: match.group_name || groupName })
+      const desiredTableNo = match.winner ? null : (desiredAssignments.get(key) ?? null)
       const currentTableNo = getTableNo(match)
       if (currentTableNo === desiredTableNo) return match
       changed = true
-      return { ...match, table_no: desiredTableNo }
+      const updatedMatch = { ...match, table_no: desiredTableNo }
+      if (!currentTableNo && desiredTableNo && !match.winner) {
+        newlyAssigned.push({ groupName, match: updatedMatch })
+      }
+      return updatedMatch
     })
   }
 
@@ -712,6 +721,13 @@ function syncTableAssignments(shouldSave = true) {
   groupMatches.value = nextMatches
   emit('update:group-matches', groupMatches.value)
   if (shouldSave) scheduleAutoSave()
+
+  // Immediately persist newly-assigned table numbers so the server has them
+  // before the next WebSocket event can overwrite local state.
+  for (const { groupName, match } of newlyAssigned) {
+    _sendGroupMatch(groupName, match, { action_type: 'table_assigned' }).catch(() => {})
+  }
+
   return true
 }
 
@@ -877,6 +893,10 @@ watch(() => store.groupPhase, (newGp) => {
     groupMatches.value = mapped
     perGroupTiebreak.value = computeAllTiebreaksForCompletedGroups()
     computePlayInLocal()
+    // Re-apply table assignments after the WebSocket update so that matches
+    // finishing at Table 1 don't cause Table 2's match to migrate.
+    // Any newly-assigned tables are also immediately persisted to the backend.
+    syncTableAssignments(false)
   }
 }, { deep: true })
 
@@ -1024,7 +1044,7 @@ function onLiveCupHit(groupName, matchIndex, payload) {
   selectedPlayer.value = null
 }
 
-function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName) {
+function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName, shooterTeam) {
   const list = [...groupMatches.value[groupName]]
   const m = { ...list[matchIndex] }
 
@@ -1074,7 +1094,16 @@ function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName) {
   if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
   else clearGroupTiebreak(groupName)
 
-  const eventData = { action_type: 'cup_hit', team_key: teamKey, cup_index: cupIndex, player_name: shooterName }
+  // teamKey is the team that LOST the cup; the shooter is the OTHER team.
+  // Fallback-compute the shooter team if not explicitly passed.
+  const resolvedShooterTeam = shooterTeam || (teamKey === 'team1' ? m.team2 : m.team1)
+  const eventData = {
+    action_type: 'cup_hit',
+    team_key: teamKey,
+    cup_index: cupIndex,
+    player_name: shooterName,
+    team_name: resolvedShooterTeam,
+  }
   _sendGroupMatch(groupName, m, eventData)
   scheduleAutoSave()
 }
@@ -1219,7 +1248,7 @@ function confirmShooter() {
   selectedPlayer.value = null
 
   if (fromTable) {
-    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, playerName)
+    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, playerName, teamName)
   } else {
     _doIncrementCups(groupName, matchIndex, teamKey, playerName, teamName)
   }

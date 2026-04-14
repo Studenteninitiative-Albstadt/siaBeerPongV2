@@ -33,6 +33,21 @@ export function flattenMatchesByGroup(matchesByGroup = {}) {
   return all
 }
 
+/**
+ * Returns true if a match is actively in progress (cups hit, history, or overtime).
+ * Used to stabilize table assignments for matches that are physically being played
+ * even when their table_no hasn't been persisted to the backend yet.
+ */
+export function isMatchInProgress(match) {
+  if (Number(match?.cups_team1) > 0 || Number(match?.cups_team2) > 0) return true
+  if (match?.is_overtime) return true
+  if (Array.isArray(match?.cups_state_team1) && match.cups_state_team1.some(c => c === false)) return true
+  if (Array.isArray(match?.cups_state_team2) && match.cups_state_team2.some(c => c === false)) return true
+  if (Array.isArray(match?.history_team1) && match.history_team1.length > 0) return true
+  if (Array.isArray(match?.history_team2) && match.history_team2.length > 0) return true
+  return false
+}
+
 export function buildStableTableAssignmentMap(matchesByGroup = {}, tableCount = 0) {
   const maxTables = Math.max(0, Number(tableCount) || 0)
   const flat = flattenMatchesByGroup(matchesByGroup)
@@ -40,6 +55,7 @@ export function buildStableTableAssignmentMap(matchesByGroup = {}, tableCount = 
   const assignedByTable = new Map()
   const occupiedTeams = new Set()
 
+  // Pass 1: Honor explicitly persisted table_no assignments (matches already saved to backend)
   for (const match of pending) {
     const tableNo = getTableNo(match)
     if (!tableNo || tableNo > maxTables) continue
@@ -50,14 +66,30 @@ export function buildStableTableAssignmentMap(matchesByGroup = {}, tableCount = 
     occupiedTeams.add(match.team2)
   }
 
-  const unassigned = pending.filter(match => {
-    const key = matchKey(match)
-    for (const assignedMatch of assignedByTable.values()) {
-      if (matchKey(assignedMatch) === key) return false
+  // Pass 2: In-progress matches without a persisted table_no are physically at a table.
+  // Assign them to the lowest available slot to keep them stable and prevent
+  // waiting-queue matches from jumping ahead of them.
+  const inProgressOrphans = pending.filter(m => !getTableNo(m) && isMatchInProgress(m))
+  for (const match of inProgressOrphans) {
+    if (occupiedTeams.has(match.team1) || occupiedTeams.has(match.team2)) continue
+    for (let tableNo = 1; tableNo <= maxTables; tableNo++) {
+      if (!assignedByTable.has(tableNo)) {
+        assignedByTable.set(tableNo, match)
+        occupiedTeams.add(match.team1)
+        occupiedTeams.add(match.team2)
+        break
+      }
     }
-    return true
-  })
+  }
 
+  // Collect all remaining unassigned pending matches (the waiting queue)
+  const assignedKeys = new Set([...assignedByTable.values()].map(m => matchKey(m)))
+  const unassigned = pending.filter(m => !assignedKeys.has(matchKey(m)))
+
+  // Pass 3: Fill empty tables from the queue. Each empty table gets the next eligible
+  // match where neither team is already playing at another table.
+  // Tables are filled in order (1, 2, 3…) so lower table numbers get priority.
+  // A match at Table 2 will NEVER migrate to Table 1 — once assigned (Pass 1/2) it stays.
   for (let tableNo = 1; tableNo <= maxTables; tableNo++) {
     if (assignedByTable.has(tableNo)) continue
     const candidateIndex = unassigned.findIndex(match =>

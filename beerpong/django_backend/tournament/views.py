@@ -234,13 +234,13 @@ class TournamentViewSet(ViewSet):
 
         if action_type == 'cup_hit' and shooter_name and shooter_team_name and match_id:
             try:
-                player = Player.objects.get(name=shooter_name)
+                player, _ = Player.objects.get_or_create(name=shooter_name)
                 team = Team.objects.get(tournament=t, name=shooter_team_name)
                 match = Match.objects.get(id=match_id)
                 CupHit.objects.create(match=match, player=player, team=team)
                 player.total_cups_hit += 1
                 player.save(update_fields=['total_cups_hit'])
-            except (Player.DoesNotExist, Team.DoesNotExist, Match.DoesNotExist):
+            except (Team.DoesNotExist, Match.DoesNotExist):
                 pass
         elif action_type == 'undo' and match_id:
             try:
