@@ -1,172 +1,220 @@
 <template>
-  <div class="min-vh-100 bg-dark text-light d-flex flex-column"
+  <div class="liveview-root bg-dark text-light d-flex flex-column"
+       :class="activeTournament ? 'liveview-root--active' : ''"
        style="background:radial-gradient(circle at top,#1a1a2e 0%,#0d0d0d 60%,#000 100%)">
 
     <!-- Header -->
-    <nav class="navbar navbar-dark bg-black border-bottom border-secondary px-4 py-2">
-      <span class="navbar-brand fw-bold">🍺 BeerPong LiveView</span>
-      <div class="d-flex align-items-center gap-3">
+    <header class="liveview-header bg-black border-bottom border-secondary">
+      <div class="d-flex align-items-center gap-3 flex-shrink-0">
+        <img src="/weiß.png" alt="SIA Logo" class="liveview-logo" />
+        <div>
+          <div class="fw-bold text-white">BeerPong LiveView</div>
+          <div class="liveview-brand-subtitle">SIA Beer Pong Turnier</div>
+        </div>
+      </div>
+      <div v-if="activeTournament" class="liveview-active-title">
+        <div class="liveview-active-title__name">{{ activeTournament.name }}</div>
+        <div class="liveview-active-title__phase">
+          Phase: {{ activeTournament.currentPhase ?? activeTournament.current_phase }}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-3 flex-shrink-0 ms-auto">
         <span class="badge" :class="wsConnected ? 'bg-success' : 'bg-secondary'">
           {{ wsConnected ? '● Live' : '○ Offline' }}
         </span>
         <button class="btn btn-sm btn-outline-secondary" @click="handleLogout">Abmelden</button>
       </div>
-    </nav>
+    </header>
 
     <!-- No active tournament -->
-    <div v-if="!activeTournament" class="flex-grow-1 d-flex flex-column align-items-center justify-content-center gap-3 p-4">
-      <h4 class="text-secondary">Turnier auswählen</h4>
-      <div v-if="store.tournaments.length === 0" class="text-secondary small">Keine Turniere vorhanden.</div>
-      <div v-else class="list-group" style="min-width:340px">
-        <button v-for="t in store.tournaments" :key="t.id"
-                class="list-group-item list-group-item-action bg-dark text-light border-secondary"
-                @click="selectTournament(t)">
-          <div class="fw-bold">{{ t.name }}</div>
-          <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
-        </button>
+    <div v-if="!activeTournament" class="flex-grow-1 p-4 p-lg-5 liveview-landing">
+      <div class="container-fluid">
+        <section class="liveview-hero card border-secondary overflow-hidden mb-4">
+          <div class="card-body p-4 p-lg-5">
+            <div class="row align-items-center g-4">
+              <div class="col-lg-8">
+                <div class="text-uppercase small liveview-kicker mb-2">Willkommen</div>
+                <h1 class="display-3 fw-bold text-white mb-3">Willkommen zum SIA Beer Pong Turnier</h1>
+                <p class="lead text-light-emphasis mb-4 liveview-hero-copy">Wintersemester 2025/2026</p>
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge rounded-pill liveview-chip">Gruppenphase</span>
+                  <span class="badge rounded-pill liveview-chip">KO-System</span>
+                  <span class="badge rounded-pill liveview-chip">Play-In moeglich</span>
+                  <span class="badge rounded-pill liveview-chip">Bierkasten fuer Platz 1</span>
+                </div>
+              </div>
+              <div class="col-lg-4">
+                <div class="liveview-hero-side card bg-black border-secondary shadow-lg">
+                  <div class="card-body">
+                    <div class="small text-secondary mb-2">Heute auf dem Beamer</div>
+                    <div class="fs-4 fw-bold text-white mb-3">Turnierhalle, TL;DR und Upcoming Events</div>
+                    <div class="small text-light-emphasis">
+                      Die Inhalte dieser Startansicht uebernehmen jetzt die bestehende Admin-Landing-Page,
+                      bleiben aber im beamerfreundlichen LiveView-Layout.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="row g-4">
+          <div class="col-xl-4 col-lg-5">
+            <div class="card bg-black border-secondary h-100 shadow-lg">
+              <div class="card-header border-secondary bg-black">
+                <strong>TL;DR</strong>
+              </div>
+              <div class="card-body">
+                <div class="d-flex flex-column gap-3">
+                  <div v-for="rule in liveviewRules" :key="rule.title" class="liveview-rule">
+                    <div class="fw-semibold text-white mb-1">{{ rule.title }}</div>
+                    <div v-if="rule.text" class="small text-secondary">{{ rule.text }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-xl-4 col-lg-7">
+            <div class="card bg-black border-secondary h-100 shadow-lg">
+              <div class="card-header border-secondary bg-black">
+                <strong>Upcoming Events</strong>
+              </div>
+              <div class="card-body">
+                <div class="d-flex flex-column gap-3">
+                  <div v-for="event in liveviewEvents" :key="event.time + event.title" class="liveview-event">
+                    <div class="d-flex align-items-start gap-3">
+                      <div class="liveview-event-time">{{ event.time }}</div>
+                      <div>
+                        <div class="fw-semibold text-white">{{ event.title }}</div>
+                        <div class="small text-secondary">{{ event.text }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-xl-4">
+            <div class="card bg-black border-secondary h-100 shadow-lg">
+              <div class="card-header border-secondary bg-black d-flex justify-content-between align-items-center">
+                <strong>Turnier auswaehlen</strong>
+                <span class="small text-secondary">{{ store.tournaments.length }} verfuegbar</span>
+              </div>
+              <div class="card-body">
+                <div v-if="store.tournaments.length === 0" class="text-secondary small">
+                  Keine Turniere vorhanden.
+                </div>
+                <div v-else class="list-group liveview-tournament-list">
+                  <button v-for="t in store.tournaments" :key="t.id"
+                          class="list-group-item list-group-item-action bg-dark text-light border-secondary"
+                          @click="selectTournament(t)">
+                    <div class="fw-bold">{{ t.name }}</div>
+                    <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Active tournament -->
     <template v-else>
-      <div class="container-fluid py-4 flex-grow-1">
-        
-        <!-- ================= 3D LIVE TISCHE ================= -->
-        <div v-if="activeMatches.length > 0" class="mb-5">
-          <h4 class="text-white mb-4 text-center">🔴 Live Spiele</h4>
-          <div class="row g-5 justify-content-center">
-            
-            <div v-for="(m, i) in activeMatches" :key="m.id" class="col-auto">
-              <div class="d-flex flex-column align-items-center">
-                <!-- Team 2 (Oben) -->
-                <div class="text-center mb-3 z-index-1">
-                  <h4 class="text-white mb-0">{{ m.team2 }}</h4>
-                  <div class="text-secondary small">{{ formatPlayers(m.team2) }}</div>
-                </div>
-                
-                <!-- Isometrischer Tisch -->
-                <div class="iso-table-container">
-                  <div class="iso-table shadow-lg">
-                    <div class="iso-cup-zone top-zone">
-                      <div v-for="(row, rIdx) in buildPyramid(m.cups_state_team2, Number(activeTournament.cupsPerGame) === 10)" :key="'t2-r'+rIdx" class="iso-cup-row">
-                        <div v-for="cup in row" :key="'t2-c'+cup.idx" class="iso-cup" :class="{'is-hit': !cup.val}"><div class="cup-inner"></div></div>
-                      </div>
+
+      <!-- K.O.-Phase / Vorschau: Full-screen bracket view -->
+      <LiveViewKO v-if="isKoFullscreen" @deselect="deselectTournament" />
+
+      <!-- Group / Play-In: normal live layout -->
+      <div v-else class="lv-shell">
+
+        <!-- ── Zeile 1: Live-Tische (links) + Nächste Spiele (rechts) ── -->
+        <div class="lv-row-top">
+
+          <div class="lv-tables-col">
+            <div class="lv-label">🔴 Live Spiele</div>
+            <div v-if="activeMatches.length" class="lv-tables-scroll">
+              <LiveTable3D
+                v-for="(m, i) in activeMatches" :key="m.id"
+                :match="m"
+                :cups-per-game="Number(activeTournament?.cupsPerGame ?? activeTournament?.cups_per_game ?? 6)"
+                :team1-players="formatPlayers(m.team1)"
+                :team2-players="formatPlayers(m.team2)"
+                :table-label="`Tisch ${m.table_no || i + 1} • ${m.group_name}`"
+                beam show-score
+              />
+            </div>
+            <div v-else class="lv-no-games">
+              <span class="text-secondary">Keine aktiven Spiele</span>
+            </div>
+          </div>
+
+          <div class="lv-queue-col">
+            <div class="card bg-black border-secondary lv-queue-card">
+              <div class="card-header bg-black border-secondary d-flex justify-content-between align-items-center">
+                <strong>Nächste Spiele</strong>
+                <span class="badge bg-secondary">{{ upcomingMatches.length }}</span>
+              </div>
+              <div class="card-body p-0 overflow-auto">
+                <div v-if="upcomingMatches.length" class="list-group list-group-flush">
+                  <div v-for="(m, idx) in upcomingMatches"
+                       :key="m.id ?? `${m.group_name}-${idx}`"
+                       class="list-group-item bg-transparent text-light border-secondary-subtle lv-queue-item">
+                    <div class="d-flex align-items-center justify-content-between gap-1 mb-1">
+                      <span class="badge bg-secondary lv-queue-badge">{{ m.group_name }}</span>
+                      <span class="text-secondary lv-queue-num">#{{ idx + 1 }}</span>
                     </div>
-                    <div class="iso-net"></div>
-                    <div class="iso-cup-zone bottom-zone">
-                      <div v-for="(row, rIdx) in buildPyramid(m.cups_state_team1, Number(activeTournament.cupsPerGame) === 10)" :key="'t1-r'+rIdx" class="iso-cup-row">
-                        <div v-for="cup in row" :key="'t1-c'+cup.idx" class="iso-cup" :class="{'is-hit': !cup.val}"><div class="cup-inner"></div></div>
-                      </div>
-                    </div>
+                    <div class="fw-semibold text-white lv-queue-team">{{ m.team1 }}</div>
+                    <div class="text-secondary lv-queue-vs">vs</div>
+                    <div class="fw-semibold text-white lv-queue-team">{{ m.team2 }}</div>
                   </div>
                 </div>
-
-                <!-- Team 1 (Unten) -->
-                <div class="text-center mt-4 z-index-1">
-                  <h4 class="text-white mb-0">{{ m.team1 }}</h4>
-                  <div class="text-secondary small">{{ formatPlayers(m.team1) }}</div>
-                </div>
-                
-                <div class="mt-3 badge bg-warning text-dark fs-6 shadow">Tisch {{ i + 1 }} • {{ m.group_name }}</div>
+                <div v-else class="p-3 text-secondary small">Keine weiteren Spiele.</div>
               </div>
             </div>
           </div>
+
         </div>
 
-        <div class="row g-4">
+        <!-- ── Zeile 2: Gruppenstaende (links) + QR-Code (rechts) ── -->
+        <div class="lv-row-bottom">
 
-          <!-- QR-Code Bereich -->
-          <div class="col-lg-4 col-md-5">
-            <div class="card bg-black border-secondary h-100 text-center p-3">
-              <h6 class="text-secondary mb-3">Mobile Ansicht</h6>
-              <canvas ref="qrCanvas" class="mx-auto d-block" style="max-width:200px;width:100%"></canvas>
-              <div class="mt-3">
-                <small class="text-secondary d-block">{{ mobileUrl }}</small>
-              </div>
-            </div>
-          </div>
-
-          <!-- Gruppen-Tabellen im Carousel -->
-          <div class="col-lg-8 col-md-7">
-            <h5 class="mb-3 d-flex align-items-center justify-content-between">
-              <span>
-                {{ activeTournament.name }}
-                <span class="badge bg-secondary ms-2 fs-6">{{ activeTournament.currentPhase ?? activeTournament.current_phase }}</span>
-              </span>
-              <small class="text-secondary">Auto-Rotation: {{ CAROUSEL_MS / 1000 }}s</small>
-            </h5>
-
-            <div class="live-carousel-container mb-3" v-if="groupCount > 0">
+          <div class="lv-standings-col">
+            <div v-if="groupCount > 0" class="live-carousel-container">
               <div class="carousel-viewport">
-                <div 
-                  class="carousel-track" 
-                  :style="{ transform: `translateX(calc(-${carouselIndex * 80}% + 10%))` }"
-                >
-                  <div 
-                    v-for="(g, idx) in groupEntries" 
-                    :key="g.name"
-                    class="carousel-slide"
-                    :class="{ 'is-active': carouselIndex === idx, 'is-ghost': carouselIndex !== idx }"
-                    @click="setCarousel(idx)"
-                  >
-                    <div class="card bg-dark border-secondary h-100 carousel-card shadow-lg">
-                      <div class="card-header d-flex justify-content-between align-items-center bg-dark border-secondary">
-                        <span class="fw-semibold">{{ g.name }}</span>
-                        <div class="btn-group btn-group-sm" role="group" v-if="carouselIndex === idx">
-                          <button class="btn btn-outline-secondary" @click.stop="goPrevGroup" :disabled="groupCount === 0">‹</button>
-                          <button class="btn btn-outline-secondary" @click.stop="goNextGroup" :disabled="groupCount === 0">›</button>
+                <div class="carousel-track"
+                     :style="{ transform: `translateX(calc(-${carouselIndex * 80}% + 10%))` }">
+                  <div v-for="(g, idx) in groupEntries" :key="g.name"
+                       class="carousel-slide"
+                       :class="{ 'is-active': carouselIndex === idx, 'is-ghost': carouselIndex !== idx }"
+                       @click="setCarousel(idx)">
+                    <div class="card bg-dark border-secondary h-100 carousel-card">
+                      <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
+                        <span class="fw-semibold text-white">{{ g.name }}</span>
+                        <div v-if="carouselIndex === idx && groupCount > 1" class="btn-group btn-group-sm">
+                          <button class="btn btn-outline-secondary" @click.stop="goPrevGroup">‹</button>
+                          <button class="btn btn-outline-secondary" @click.stop="goNextGroup">›</button>
                         </div>
                       </div>
                       <div class="card-body p-0">
-                        <div class="bg-gradient text-start px-3 py-2 border-bottom border-secondary">
-                          <small class="text-secondary">Gruppe</small>
-                          <div class="fw-semibold text-white fs-6">{{ g.name }}</div>
-                        </div>
-                        <div class="table-responsive">
-                          <table class="table table-dark table-sm mb-0 align-middle">
-                            <thead>
-                              <tr>
-                                <th>#</th>
-                                <th>Team</th>
-                                <th class="text-center">P</th>
-                                <th class="text-center">S</th>
-                                <th class="text-center">N</th>
-                                <th class="text-center">B+</th>
-                                <th class="text-center">B-</th>
-                                <th class="text-center">±</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr v-for="(r, rIdx) in g.rows" :key="r.name"
-                                  :class="rIdx < 2 ? 'table-success' : ''">
-                                <td>{{ rIdx + 1 }}</td>
-                                <td class="text-truncate" style="max-width: 160px;" :title="r.name">{{ r.name }}</td>
-                                <td class="text-center fw-bold">{{ r.points }}</td>
-                                <td class="text-center text-success">{{ r.wins }}</td>
-                                <td class="text-center text-danger">{{ r.losses }}</td>
-                                <td class="text-center">{{ r.cupsFor }}</td>
-                                <td class="text-center">{{ r.cupsAgainst }}</td>
-                                <td class="text-center" :class="r.cupsDiff > 0 ? 'text-success' : r.cupsDiff < 0 ? 'text-danger' : ''">
-                                  {{ r.cupsDiff > 0 ? '+' : '' }}{{ r.cupsDiff }}
-                                </td>
-                              </tr>
-                              <tr v-if="g.rows.length === 0">
-                                <td colspan="8" class="text-center text-secondary py-3">Keine Daten</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
+                        <GroupStandingsTable
+                          :rows="g.rows"
+                          :active-teams="activeTeamNames"
+                          compact
+                          max-name-width="140px"
+                          empty-text="Keine Daten"
+                        />
                       </div>
-                      <div v-if="groupCount > 1" class="card-footer mt-auto bg-dark border-secondary text-center">
+                      <div v-if="groupCount > 1" class="card-footer bg-dark border-secondary text-center py-1">
                         <div class="d-flex justify-content-center gap-2">
-                          <button
-                            v-for="(dot, i) in groupEntries"
-                            :key="dot.name"
-                            class="btn btn-sm dot-btn"
-                            :class="i === carouselIndex ? 'btn-primary' : 'btn-outline-secondary'"
-                            @click.stop="setCarousel(i)"
-                            :title="dot.name"
-                          ></button>
+                          <button v-for="(dot, i) in groupEntries" :key="dot.name"
+                                  class="btn btn-sm dot-btn"
+                                  :class="i === carouselIndex ? 'btn-primary' : 'btn-outline-secondary'"
+                                  @click.stop="setCarousel(i)"
+                                  :title="dot.name"></button>
                         </div>
                       </div>
                     </div>
@@ -174,18 +222,28 @@
                 </div>
               </div>
             </div>
-            
-            <div v-else class="card bg-dark border-secondary p-4 text-center text-secondary mb-3">
-              Keine Gruppenstände verfügbar
+            <div v-else class="card bg-dark border-secondary p-3 text-center text-secondary small">
+              Keine Gruppenstaende verfuegbar
             </div>
           </div>
+
+          <div class="lv-qr-col">
+            <div class="card bg-black border-secondary h-100 text-center p-3">
+              <h6 class="text-secondary mb-2 small">Mobile Ansicht</h6>
+              <canvas ref="qrCanvas" class="mx-auto d-block liveview-qr"></canvas>
+              <div class="mt-2">
+                <small class="text-secondary d-block liveview-qr-url">{{ mobileUrl }}</small>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <!-- KO rounds -->
-        <div v-if="koRounds.length" class="mb-4">
-          <h6 class="text-secondary mb-2">K.O.-Phase</h6>
-          <div v-for="round in koRounds" :key="round.round_name" class="mb-3">
-            <div class="fw-semibold text-white mb-1">{{ round.round_name }}</div>
+        <!-- KO-Phase -->
+        <div v-if="koRounds.length" class="lv-ko-block">
+          <div class="lv-label mb-1">K.O.-Phase</div>
+          <div v-for="round in koRounds" :key="round.round_name" class="mb-2">
+            <div class="fw-semibold text-white mb-1 small">{{ round.round_name }}</div>
             <div class="d-flex flex-wrap gap-2">
               <div v-for="(m, idx) in round.matches" :key="idx"
                    class="card bg-dark border-secondary px-3 py-2 text-light small">
@@ -199,10 +257,11 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="border-top border-secondary p-3 text-center">
-        <button class="btn btn-outline-secondary btn-sm" @click="deselectTournament">Anderes Turnier</button>
+        <div class="border-top border-secondary py-2 px-3 text-center lv-footer">
+          <button class="btn btn-outline-secondary btn-sm" @click="deselectTournament">Anderes Turnier</button>
+        </div>
+
       </div>
     </template>
   </div>
@@ -214,22 +273,69 @@ import { useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { useAuthStore } from '../stores/auth.js'
 import { useTournamentStore } from '../stores/tournament.js'
+import LiveTable3D from '../components/LiveTable3D.vue'
+import GroupStandingsTable from '../components/GroupStandingsTable.vue'
+import { getAssignedActiveMatches, getUpcomingMatches } from '../utils/tableAssignments.js'
+import LiveViewKO from '../components/LiveViewKO.vue'
 
 const auth   = useAuthStore()
 const store  = useTournamentStore()
 const router = useRouter()
-const API = import.meta.env.VITE_API_BASE || ''
 
 const CAROUSEL_MS = 6000
-const activeTournament = ref(null)
+const activeTournament = computed(() => store.tournament)
+const currentPhase     = computed(() =>
+  activeTournament.value?.current_phase ?? activeTournament.value?.currentPhase ?? 'group'
+)
+const isKoFullscreen = computed(() =>
+  currentPhase.value === 'ko' || currentPhase.value === 'ko_preview'
+)
 const qrCanvas = ref(null)
 const carouselIndex = ref(0)
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+const viewportHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 1080)
 let carouselTimer = null
 
-/* Live Data für die Tische */
-const liveGroupMatches = ref({})
-const liveTeams = ref([])
-let pollingTimer = null
+const liveviewRules = [
+  {
+    title: 'Gespielt wird in Gruppenphase -> KO-System.',
+    text: '',
+  },
+  {
+    title: 'Pro Spiel: 2 x 0,33 l Bier',
+    text: '(an der Bar fuer 2,50 EUR).',
+  },
+  {
+    title: 'Je nach Teilnehmeranzahl kann es ein Play-In fuer die KO-Phase geben.',
+    text: '',
+  },
+  {
+    title: 'Gewertet werden Siege/Niederlagen und getroffene/kassierte Becher.',
+    text: '',
+  },
+  {
+    title: 'Der Sieger des Turniers gewinnt einen Bierkasten.',
+    text: '',
+  },
+]
+
+const liveviewEvents = [
+  {
+    time: '18.11.2025',
+    title: 'Just Open',
+    text: '20:00 · Plan B',
+  },
+  {
+    time: '20.11.2025',
+    title: 'Blacklight',
+    text: '20:00 · Plan B',
+  },
+  {
+    time: '21.11.2025',
+    title: 'Mental Health Coffee Break',
+    text: '14:00 · Plan B',
+  },
+]
 
 const wsConnected = computed(() => store.wsConnected)
 const koRounds    = computed(() => store.koPhase?.rounds ?? [])
@@ -267,33 +373,29 @@ const groupStandings = computed(() => {
 })
 
 /* Logik für die Aktiven Live Tische (identisch zu GroupsView) */
-const activeMatches = computed(() => {
-  const arr = []
-  for (const [gName, ms] of Object.entries(liveGroupMatches.value)) {
-    for (let i = 0; i < ms.length; i++) {
-      arr.push({ ...ms[i], group_name: gName, originalIndex: i })
-    }
-  }
-  arr.sort((a, b) => {
-    if (a.order_index !== b.order_index) return a.order_index - b.order_index
-    return a.group_name.localeCompare(b.group_name, 'de')
-  })
-  
-  const pendingMatches = arr.filter(m => !m.winner)
-  const active = []
-  const playingTeams = new Set()
-  const tCount = activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2
+const activeMatches = computed(() =>
+  getAssignedActiveMatches(
+    store.groupPhase?.matches || {},
+    activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2
+  )
+)
 
-  for (const m of pendingMatches) {
-    if (active.length >= tCount) break
-    if (!playingTeams.has(m.team1) && !playingTeams.has(m.team2)) {
-      active.push(m)
-      playingTeams.add(m.team1)
-      playingTeams.add(m.team2)
-    }
+const activeTeamNames = computed(() => {
+  const teams = new Set()
+  for (const match of activeMatches.value) {
+    if (match.team1) teams.add(match.team1)
+    if (match.team2) teams.add(match.team2)
   }
-  return active
+  return Array.from(teams)
 })
+
+const upcomingMatches = computed(() =>
+  getUpcomingMatches(
+    store.groupPhase?.matches || {},
+    activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2,
+    6
+  )
+)
 
 const groupEntries = computed(() =>
   Object.entries(groupStandings.value || {}).map(([name, rows]) => ({
@@ -309,49 +411,42 @@ const mobileUrl = computed(() => {
   return `${base}#/mobile?token=${activeTournament.value.mobileAccessToken}&id=${activeTournament.value.id}`
 })
 
+const qrCodeSize = computed(() => {
+  const byWidth = viewportWidth.value * 0.13
+  const byHeight = viewportHeight.value * 0.18
+  return Math.round(Math.max(120, Math.min(240, byWidth, byHeight)))
+})
+
 onMounted(async () => {
   await store.fetchList()
+  handleResize()
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   store.disconnect()
   stopCarousel()
-  if (pollingTimer) clearInterval(pollingTimer)
+  window.removeEventListener('resize', handleResize)
 })
 
 watch(mobileUrl, async (url) => {
   if (!url || !qrCanvas.value) return
   await nextTick()
   try {
-    await QRCode.toCanvas(qrCanvas.value, url, { width: 200, color: { dark: '#ffffff', light: '#000000' } })
+    await QRCode.toCanvas(qrCanvas.value, url, { width: qrCodeSize.value, color: { dark: '#ffffff', light: '#000000' } })
   } catch (e) { console.error('QR error', e) }
 })
 
-async function fetchLiveTableData() {
-  if (!activeTournament.value?.id) return
+watch(qrCodeSize, async () => {
+  if (!mobileUrl.value || !qrCanvas.value) return
+  await nextTick()
   try {
-    const ts = new Date().getTime()
-    const res = await fetch(`${API}/tournaments/${activeTournament.value.id}/load-all-data?_t=${ts}`, {
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
-    })
-    if (!res.ok) return
-    const data = await res.json()
-    const gp = data?.group_phase?.group_phase ?? data?.group_phase ?? {}
-    liveGroupMatches.value = gp.matches || {}
-    liveTeams.value = Array.isArray(data.teams) ? data.teams : []
-    if (data.tournament?.tableCount) activeTournament.value.tableCount = data.tournament.tableCount
-    else if (data.tournament?.table_count) activeTournament.value.tableCount = data.tournament.table_count
-  } catch (e) { /* silent fail */ }
-}
+    await QRCode.toCanvas(qrCanvas.value, mobileUrl.value, { width: qrCodeSize.value, color: { dark: '#ffffff', light: '#000000' } })
+  } catch (e) { console.error('QR resize error', e) }
+})
 
 async function selectTournament(t) {
-  activeTournament.value = t
   await store.load(t.id)
-  activeTournament.value = store.tournament
   store.connect(t.id)
   carouselIndex.value = 0
   stopCarousel()
@@ -359,20 +454,14 @@ async function selectTournament(t) {
   // render QR
   await nextTick()
   if (qrCanvas.value && mobileUrl.value) {
-    QRCode.toCanvas(qrCanvas.value, mobileUrl.value, { width: 200, color: { dark: '#ffffff', light: '#000000' } }).catch(() => {})
+    QRCode.toCanvas(qrCanvas.value, mobileUrl.value, { width: qrCodeSize.value, color: { dark: '#ffffff', light: '#000000' } }).catch(() => {})
   }
-  
-  // Start Live-Polling für die 3D Tische
-  fetchLiveTableData()
-  if (pollingTimer) clearInterval(pollingTimer)
-  pollingTimer = setInterval(fetchLiveTableData, 1000)
 }
 
 function deselectTournament() {
-  activeTournament.value = null
+  store.tournament = null
   store.disconnect()
   stopCarousel()
-  if (pollingTimer) clearInterval(pollingTimer)
 }
 
 function handleLogout() {
@@ -390,6 +479,11 @@ function stopCarousel() {
     clearInterval(carouselTimer)
     carouselTimer = null
   }
+}
+
+function handleResize() {
+  viewportWidth.value = window.innerWidth
+  viewportHeight.value = window.innerHeight
 }
 
 function startCarousel() {
@@ -419,31 +513,11 @@ function goPrevGroup() {
   startCarousel()
 }
 
-/* Helfer für 3D Pyramiden & Spieler */
-function buildPyramid(cupsArray, is10Cups) {
-  const n = is10Cups ? 10 : 6
-  const arr = (Array.isArray(cupsArray) && cupsArray.length > 0) ? cupsArray : Array(n).fill(true)
-  if (is10Cups) {
-    return [
-      [ {idx:0, val:arr[0]}, {idx:1, val:arr[1]}, {idx:2, val:arr[2]}, {idx:3, val:arr[3]} ],
-      [ {idx:4, val:arr[4]}, {idx:5, val:arr[5]}, {idx:6, val:arr[6]} ],
-      [ {idx:7, val:arr[7]}, {idx:8, val:arr[8]} ],
-      [ {idx:9, val:arr[9]} ]
-    ]
-  } else {
-    return [
-      [ {idx:0, val:arr[0]}, {idx:1, val:arr[1]}, {idx:2, val:arr[2]} ],
-      [ {idx:3, val:arr[3]}, {idx:4, val:arr[4]} ],
-      [ {idx:5, val:arr[5]} ]
-    ]
-  }
-}
-
 function formatPlayers(teamName) {
-  const t = liveTeams.value.find(x => (x.name || x.teamName) === teamName)
-  if (!t) return ''
-  if (t.player1 && t.player2) return `${t.player1} & ${t.player2}`
-  return t.player1 || t.player2 || ''
+  const p = store.teamPlayers?.[teamName]
+  if (!p) return ''
+  if (p.player1 && p.player2) return `${p.player1} & ${p.player2}`
+  return p.player1 || p.player2 || ''
 }
 
 watch(groupEntries, () => {
@@ -459,115 +533,412 @@ watch(groupEntries, () => {
 </script>
 
 <style scoped>
-/* === 3D Isometrische Tisch Ansicht === */
-.iso-table-container {
-  perspective: 1200px;
-  margin: 0 auto;
-}
-.iso-table {
-  width: 220px;
-  height: 380px;
-  background: linear-gradient(to bottom, #11364d 0%, #1e6b52 100%);
-  transform: rotateX(55deg);
-  transform-style: preserve-3d;
-  border: 6px solid #444;
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 15px 0;
-  box-shadow: 0 40px 30px rgba(0,0,0,0.6), inset 0 0 30px rgba(0,0,0,0.6);
-  position: relative;
-}
-.iso-net {
-  position: absolute;
-  top: 50%;
-  left: -5%;
-  width: 110%;
-  height: 4px;
-  background: rgba(255,255,255,0.8);
-  transform: translateY(-50%) translateZ(1px);
-  box-shadow: 0 0 8px #fff;
-}
-.iso-cup-zone {
-  height: 45%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  transform-style: preserve-3d;
-}
-.bottom-zone {
-  flex-direction: column-reverse; /* Pyramide zeigt nach oben (zum Netz) */
-}
-.iso-cup-row {
-  display: flex;
-  gap: 12px;
-  transform-style: preserve-3d;
-}
-.iso-cup {
-  width: 26px;
-  height: 26px;
-  background: #e53935;
-  border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.9);
-  transform: translateZ(10px) rotateX(-55deg); /* Kippt den Becher wieder hoch */
-  box-shadow: 0 12px 10px rgba(0,0,0,0.5);
-  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-  position: relative;
-}
-.cup-inner {
-  position: absolute;
-  top: 15%; left: 15%;
-  width: 70%; height: 70%;
-  background: #8e0000;
-  border-radius: 50%;
-}
-.iso-cup.is-hit {
-  opacity: 0;
-  transform: translateZ(-20px) rotateX(-55deg) scale(0.4);
+.liveview-root {
+  min-height: 100dvh;
 }
 
-.live-carousel-container {
-  position: relative;
-  width: 100%;
+/* Locked viewport when a tournament is active */
+.liveview-root--active {
+  height: 100dvh;
   overflow: hidden;
-  padding: 10px 0;
 }
+
+/* ── Header: plain flexbox, no Bootstrap navbar conflicts ───────────────── */
+.liveview-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  min-height: 60px;
+}
+
+.liveview-active-title {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+}
+
+.liveview-active-title__name {
+  color: #fff;
+  font-size: clamp(1rem, 1.6vw, 1.45rem);
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.liveview-active-title__phase {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: clamp(0.68rem, 0.85vw, 0.8rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ── Active tournament – zwei-Zeilen-Layout ─────────────────────────────── */
+.lv-shell {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(8px, 1vh, 14px) clamp(10px, 1.2vw, 18px);
+  gap: clamp(6px, 0.8vh, 10px);
+  overflow: hidden;
+}
+
+/* Zeile 1: Live-Tische + Nächste-Spiele-Queue */
+.lv-row-top {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  gap: clamp(8px, 1vw, 14px);
+}
+
+.lv-tables-col {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lv-tables-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: clamp(10px, 1.5vw, 24px);
+  align-items: flex-start;
+  overflow: auto hidden;
+}
+
+.lv-no-games {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lv-queue-col {
+  flex: 0 0 clamp(160px, 15vw, 220px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lv-queue-card {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(4,4,4,0.98) 0%, rgba(14,18,26,0.98) 100%);
+  border-color: rgba(255,255,255,0.16) !important;
+}
+
+.lv-queue-card :deep(.card-header) {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.75rem;
+}
+
+.lv-queue-card :deep(.card-body) {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.lv-queue-item {
+  padding: 0.48rem 0.6rem;
+  background: rgba(255,255,255,0.04) !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+}
+
+.lv-queue-badge { font-size: 0.68rem; }
+.lv-queue-num   { font-size: 0.68rem; }
+.lv-queue-vs    { font-size: 0.7rem; margin: 1px 0; }
+.lv-queue-team  { font-size: clamp(0.72rem, 0.85vw, 0.85rem); }
+
+/* Zeile 2: Gruppenstaende + QR-Code */
+.lv-row-bottom {
+  flex: 0 0 clamp(180px, 34vh, 310px);
+  min-height: 0;
+  display: flex;
+  gap: clamp(8px, 1vw, 14px);
+}
+
+.lv-standings-col {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lv-qr-col {
+  flex: 0 0 clamp(160px, 15vw, 220px);
+  min-height: 0;
+}
+
+.lv-ko-block {
+  flex: 0 0 auto;
+  max-height: 90px;
+  overflow: auto;
+}
+
+.lv-footer {
+  flex: 0 0 auto;
+}
+
+.lv-label {
+  flex: 0 0 auto;
+  font-size: clamp(0.7rem, 0.88vw, 0.86rem);
+  font-weight: 600;
+  color: rgba(255,255,255,0.58);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.liveview-section-title {
+  font-size: clamp(1rem, 1.4vw, 1.35rem);
+}
+
+.liveview-logo {
+  width: clamp(34px, 2.3vw, 46px);
+  height: clamp(34px, 2.3vw, 46px);
+  object-fit: contain;
+  filter: drop-shadow(0 4px 10px rgba(255, 255, 255, 0.12));
+}
+
+.liveview-brand-subtitle {
+  font-size: clamp(0.62rem, 0.85vw, 0.72rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.liveview-landing {
+  background:
+    radial-gradient(circle at 10% 15%, rgba(255, 185, 65, 0.12), transparent 24%),
+    radial-gradient(circle at 85% 18%, rgba(88, 166, 255, 0.12), transparent 22%);
+}
+
+.liveview-hero {
+  background:
+    linear-gradient(135deg, rgba(8, 8, 8, 0.96) 0%, rgba(16, 28, 42, 0.96) 58%, rgba(41, 67, 54, 0.94) 100%);
+}
+
+.liveview-kicker {
+  letter-spacing: 0.18em;
+  color: rgba(255, 214, 102, 0.86);
+}
+
+.liveview-hero-copy {
+  max-width: 48rem;
+}
+
+.liveview-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 0.55rem 0.85rem;
+}
+
+.liveview-rule,
+.liveview-event {
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.liveview-event-time {
+  min-width: 64px;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd166 0%, #f4a261 100%);
+  color: #201607;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.liveview-tournament-list .list-group-item {
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.liveview-tournament-list .list-group-item:hover {
+  background-color: #111723 !important;
+  transform: translateY(-1px);
+}
+
+.liveview-queue-card {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(4, 4, 4, 0.98) 0%, rgba(14, 18, 26, 0.98) 100%);
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  overflow: hidden;
+}
+
+.liveview-queue-card :deep(.card-header) {
+  flex: 0 0 auto;
+}
+
+.liveview-queue-card :deep(.card-body) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.liveview-queue-item {
+  padding: 0.6rem 0.7rem;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.liveview-qr {
+  width: 100%;
+  max-width: min(22vh, 14vw, 180px);
+  aspect-ratio: 1;
+}
+
+.liveview-qr-url {
+  font-size: 0.55rem;
+  word-break: break-all;
+  color: rgba(255,255,255,0.35) !important;
+}
+
+/* Carousel inside .lv-standings-col */
+.live-carousel-container {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 .carousel-viewport {
   width: 100%;
+  height: 100%;
   overflow: visible;
 }
+
 .carousel-track {
   display: flex;
+  height: 100%;
   transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
 }
+
 .carousel-slide {
   flex: 0 0 80%;
-  padding: 0 10px;
+  padding: 0 8px;
+  height: 100%;
   transition: all 0.5s ease;
   cursor: pointer;
 }
+
 .carousel-slide.is-ghost {
   opacity: 0.35;
   transform: scale(0.9);
   filter: blur(2px);
 }
+
 .carousel-slide.is-active {
   opacity: 1;
   transform: scale(1);
   filter: blur(0);
   z-index: 2;
 }
+
 .carousel-card {
-  min-height: 320px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  height: 100%;
 }
+
+.carousel-card :deep(.card-header) {
+  flex: 0 0 auto;
+  padding: 0.38rem 0.65rem;
+}
+
+.carousel-card :deep(.card-body) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.carousel-card :deep(.card-footer) {
+  flex: 0 0 auto;
+  padding: 0.28rem 0.5rem;
+}
+
+.carousel-card :deep(.table) {
+  font-size: clamp(0.66rem, 0.88vw, 0.84rem);
+}
+
+.carousel-card :deep(th),
+.carousel-card :deep(td) {
+  padding-top: 0.26rem;
+  padding-bottom: 0.26rem;
+}
+
 .dot-btn {
   width: 10px;
   height: 10px;
   padding: 0;
   border-radius: 50%;
+}
+
+@media (max-height: 800px) {
+  .liveview-brand-subtitle { display: none; }
+
+  .liveview-active-title__name  { font-size: clamp(0.88rem, 1.2vw, 1.05rem); }
+  .liveview-active-title__phase { font-size: 0.66rem; }
+
+  .lv-row-bottom {
+    flex-basis: clamp(160px, 30vh, 270px);
+  }
+
+  .carousel-card :deep(.table) { font-size: 0.66rem; }
+
+  .carousel-card :deep(.card-header),
+  .lv-queue-card :deep(.card-header) {
+    padding: 0.32rem 0.55rem;
+  }
+
+  .liveview-qr {
+    max-width: min(16vh, 13vw, 150px);
+  }
+}
+
+@media (max-width: 900px) {
+  .liveview-header {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 10px 16px;
+  }
+
+  /* Tournament title drops below brand + actions on narrow screens */
+  .liveview-active-title {
+    order: 3;
+    flex: 1 0 100%;
+    text-align: left !important;
+  }
+
+  .liveview-active-title__name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
+
+  .lv-queue-col { flex-basis: clamp(130px, 26vw, 180px); }
+  .lv-qr-col   { flex-basis: clamp(130px, 26vw, 180px); }
+}
+
+@media (max-width: 640px) {
+  .liveview-header { padding: 8px 12px; }
+  .liveview-logo   { width: 30px; height: 30px; }
 }
 </style>

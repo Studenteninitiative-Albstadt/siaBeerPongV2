@@ -22,6 +22,12 @@
           >
             Finale & Platz 3: {{ finaleWith10Cups ? '10 Becher' : 'Standard' }}
           </span>
+          <!-- Table count control -->
+          <div class="d-flex align-items-center gap-1 ms-2">
+            <button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="removeTable" :disabled="tableCount <= 1">−</button>
+            <span class="badge bg-dark border border-secondary px-2">{{ tableCount }} {{ tableCount === 1 ? 'Tisch' : 'Tische' }}</span>
+            <button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="addTable" :disabled="tableCount >= 8">+</button>
+          </div>
         </div>
       </div>
       <div class="d-flex gap-2">
@@ -73,10 +79,29 @@
               :readonly="false"
               :interactive="true"
               :cups-target-fn="cupsTargetForRound"
+              :active-match-ids="activeMatchIds"
               @increment-cup="onBracketIncrementCup"
               @set-cups="onBracketSetCups"
             />
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live KO Tische -->
+    <div v-if="liveMatchCards.length" class="ko-live-section mt-4">
+      <div class="ko-live-header d-flex align-items-center gap-2 mb-3">
+        <span class="badge bg-danger ko-live-badge">🔴 Live Spiele</span>
+        <span class="text-secondary small">{{ liveMatchCards.length }} Spiel{{ liveMatchCards.length === 1 ? '' : 'e' }} aktiv</span>
+      </div>
+      <div class="ko-live-tables">
+        <div v-for="(m, i) in liveMatchCards" :key="m.id ?? i" class="ko-live-table-wrap">
+          <LiveTable3D
+            :match="m"
+            :cups-per-game="m._cups_target"
+            :table-label="`Tisch ${m.table_no} • ${m.round_name || 'KO-Phase'}`"
+            beam show-score
+          />
         </div>
       </div>
     </div>
@@ -100,6 +125,8 @@
 import { reactive, ref, computed, onMounted, watch } from 'vue'
 import KnockoutBracket from './KnockoutBracket.vue'
 import ConfettiOverlay from './ConfettiOverlay.vue'
+import LiveTable3D from './LiveTable3D.vue'
+import { getKOActiveMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
 
 const API = import.meta.env.VITE_API_BASE || ''
 
@@ -116,10 +143,43 @@ const loading = ref(false)
 const roundsLocal = reactive([])
 const activeRoundIndex = ref(0)
 const initialTeams = computed(() => (props.teams || []).filter(Boolean))
+const tableCount = ref(2)
 
 /* Settings */
 const baseCupsPerGame = ref(6)
 const finaleWith10Cups = ref(false)
+
+/* Table management */
+function addTable() { tableCount.value = Math.min(8, tableCount.value + 1); saveTableCount() }
+function removeTable() { tableCount.value = Math.max(1, tableCount.value - 1); saveTableCount() }
+async function saveTableCount() {
+  if (!props.tournamentId) return
+  try {
+    await fetch(`${API}/tournaments/${props.tournamentId}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableCount: tableCount.value }),
+    })
+  } catch { /* silent */ }
+}
+
+/* Active KO matches for live display */
+const activeKOMatches = computed(() => getKOActiveMatches(roundsLocal, tableCount.value))
+const activeMatchIds  = computed(() => new Set(activeKOMatches.value.map(m => m.id).filter(id => id != null)))
+const liveMatchCards  = computed(() =>
+  activeKOMatches.value.map(m => {
+    // Find the round index in roundsLocal for cupsTargetForRound
+    const rIdx = roundsLocal.findIndex(r => r.round_name === m.round_name && r.bracket_type === m.bracket_type)
+    const cups = cupsTargetForRound(rIdx >= 0 ? rIdx : 0)
+    return {
+      ...m,
+      group_name: m.round_name || 'KO-Phase',
+      cups_state_team1: makeCupsStateFromCount(m.cups_team1, cups),
+      cups_state_team2: makeCupsStateFromCount(m.cups_team2, cups),
+      _cups_target: cups,
+    }
+  })
+)
 
 /* Computed Helpers */
 const currentRound = computed(() => roundsLocal[activeRoundIndex.value] || { matches: [] })
@@ -421,6 +481,8 @@ async function loadFromServer() {
       const t = tData?.tournament ?? {}
       baseCupsPerGame.value = Number.isFinite(+t.cupsPerGame) ? +t.cupsPerGame : 6
       finaleWith10Cups.value = !!t.finaleWith10Cups
+      const tc = Number(t.tableCount ?? t.table_count)
+      if (Number.isFinite(tc) && tc > 0) tableCount.value = tc
     }
 
     let serverRounds = []
@@ -433,6 +495,7 @@ async function loadFromServer() {
         bracket_type: r.bracket_type || 'main',
         round_name: r.round_name || '',
         matches: (r.matches || []).map(m => ({
+          id: m.id ?? null,
           team1: m.team1 ?? null,
           team2: m.team2 ?? null,
           winner: m.winner ?? null,
@@ -591,5 +654,26 @@ onMounted(async () => {
 }
 .shadow-md {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Live KO tables section */
+.ko-live-section {
+  max-width: 1250px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.ko-live-header { }
+.ko-live-badge {
+  font-size: 0.85rem;
+  padding: 0.4em 0.8em;
+}
+.ko-live-tables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  justify-content: flex-start;
+}
+.ko-live-table-wrap {
+  flex: 0 0 auto;
 }
 </style>

@@ -22,6 +22,7 @@
           >
             <div class="match-header">
               <span class="match-label">Spiel {{ mIdx + 1 }}</span>
+              <span v-if="activeMatchIds?.has(m.id)" class="ko-live-pulse"></span>
             </div>
 
             <div class="match-body">
@@ -142,6 +143,7 @@
             >
               <div class="match-header">
                 <span class="match-label">Platz 3</span>
+                <span v-if="activeMatchIds?.has(m.id)" class="ko-live-pulse"></span>
               </div>
 
               <div class="match-body">
@@ -247,6 +249,7 @@
             >
               <div class="match-header">
                 <span class="match-label">Finale</span>
+                <span v-if="activeMatchIds?.has(m.id)" class="ko-live-pulse"></span>
               </div>
 
               <div class="match-body">
@@ -358,7 +361,8 @@ const props = defineProps({
   cupsTargetFn: {
     type: Function,
     default: () => 6
-  }
+  },
+  activeMatchIds: { type: Object, default: null } // Set<number>
 })
 
 const emit = defineEmits(['increment-cup', 'set-cups'])
@@ -480,6 +484,20 @@ if (import.meta && import.meta.hot) {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #adb5bd;
+}
+
+.ko-live-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #dc3545;
+  flex-shrink: 0;
+  animation: ko-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ko-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); opacity: 1; }
+  50%       { box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);  opacity: 0.8; }
 }
 
 /* Inhalt der Match-Karte */

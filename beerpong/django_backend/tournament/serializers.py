@@ -29,6 +29,7 @@ class TournamentSerializer(serializers.ModelSerializer):
     participantCount = serializers.IntegerField(source='participant_count', read_only=True)
     cupsPerGame = serializers.IntegerField(source='cups_per_game', read_only=True)
     finaleWith10Cups = serializers.BooleanField(source='finale_with_10_cups', read_only=True)
+    tableCount = serializers.IntegerField(source='table_count', required=False)
     mobileAccessToken = serializers.UUIDField(source='mobile_access_token', read_only=True)
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
 
@@ -36,7 +37,7 @@ class TournamentSerializer(serializers.ModelSerializer):
         model = Tournament
         fields = [
             'id', 'name', 'mode', 'participant_count', 'cups_per_game',
-            'finale_with_10_cups', 'status', 'mobile_access_token', 'created_at',
+            'finale_with_10_cups', 'table_count', 'tableCount', 'status', 'mobile_access_token', 'created_at',
             'currentPhase', 'current_phase', 'participantCount', 'cupsPerGame',
             'finaleWith10Cups', 'mobileAccessToken', 'createdAt',
         ]

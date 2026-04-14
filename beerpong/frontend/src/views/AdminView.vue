@@ -72,6 +72,7 @@
         v-else-if="step === 6"
         :teams="koPreviewTeams"
         :ko-size="targetKoSize || null"
+        :slots="koPreviewSlots"
         @cancel="handlePreviewCancel"
         @confirm="handleKoPreviewConfirm"
       />
@@ -80,6 +81,7 @@
         v-else-if="step === 7"
         :tournament-id="tournament?.id"
         :auto-qualified="pendingQualified"
+        :auto-qualified-slots="pendingQualifiedSlots"
         :ko-size="targetKoSize || null"
         :candidates="playInCandidates"
         :matches="playInMatches"
@@ -136,7 +138,9 @@ const tournamentName  = computed(() => tournament.value?.name ?? ('#' + (tournam
 const tournamentPhase = computed(() => tournament.value?.current_phase ?? tournament.value?.currentPhase ?? 'group')
 
 const koPreviewTeams  = ref([])
+const koPreviewSlots  = ref([])
 const pendingQualified = ref([])
+const pendingQualifiedSlots = ref([])
 const cameFromPlayIn  = ref(false)
 const targetKoSize    = ref(null)
 const playInMatches   = ref([])
@@ -211,17 +215,41 @@ async function loadTournament(id) {
     if (phase === 'playin') {
       const pi = data.playin ?? {}
       pendingQualified.value = pi.direct_qualified_labels ?? pi.direct_qualified ?? []
+      pendingQualifiedSlots.value = normalizePreviewSlots(
+        pi.direct_qualified_slots ?? pi.direct_qualified_labels ?? pi.direct_qualified,
+        'Direkt qualifiziert'
+      )
       playInMatches.value    = pi.playin_matches ?? []
       rageCageGroups.value   = pi.rage_cage_groups ?? []
       policyNotes.value      = pi.policy_notes ?? []
       targetKoSize.value     = pi.ko_size ?? null
       playInCandidates.value = pi.ranking_candidates ?? []
+      koPreviewSlots.value   = []
       cameFromPlayIn.value   = true
       step.value = 7
+    } else if (phase === 'ko_preview') {
+      const pi = data.playin ?? {}
+      const preview = data.ko_preview ?? {}
+      koPreviewSlots.value = normalizePreviewSlots(preview.slots, 'KO')
+      koPreviewTeams.value = koPreviewSlots.value.map(slot => slot.teamName).filter(Boolean)
+      targetKoSize.value   = preview.ko_size ?? preview.koSize ?? null
+      cameFromPlayIn.value = preview.source === 'playin'
+      pendingQualified.value = pi.direct_qualified_labels ?? pi.direct_qualified ?? []
+      pendingQualifiedSlots.value = normalizePreviewSlots(
+        pi.direct_qualified_slots ?? pi.direct_qualified_labels ?? pi.direct_qualified,
+        'Direkt qualifiziert'
+      )
+      playInMatches.value    = pi.playin_matches ?? []
+      rageCageGroups.value   = pi.rage_cage_groups ?? []
+      policyNotes.value      = pi.policy_notes ?? []
+      playInCandidates.value = pi.ranking_candidates ?? []
+      step.value = 6
     } else if (phase === 'ko') {
       cameFromPlayIn.value = false
       targetKoSize.value   = data.ko_phase?.ko_size ?? null
       koPreviewTeams.value = []
+      koPreviewSlots.value = []
+      pendingQualifiedSlots.value = []
       step.value = 5
     } else {
       step.value = 4
@@ -266,16 +294,9 @@ async function handleFinish(finalTournament) {
     }
     teamPlayers.value = players
 
-    tournament.value = {
-      id: tId, name: created.name ?? body.name, mode: created.mode ?? 'groups',
-      participantCount: created.participantCount ?? body.participantCount,
-      cupsPerGame:      created.cupsPerGame      ?? body.cupsPerGame,
-      finaleWith10Cups: created.finaleWith10Cups ?? body.finaleWith10Cups,
-      current_phase: created.currentPhase ?? 'group',
-    }
-    teams.value = teamList.slice()
-    step.value  = 4
+    await store.load(tId)
 
+    step.value  = 4
     store.connect(tId)
     fetchTournamentsList().catch(() => {})
   } catch (e) { console.error('handleFinish failed:', e) }
@@ -294,9 +315,116 @@ function pairTeamsToMatches(list) {
   return out
 }
 
-function handleCreateKoFromGroups({ tables, playIn, cupsTarget, koSize }) {
-  const topTwos = Object.values(tables ?? {}).flatMap(rows => rows.slice(0, 2).map(r => r.name))
-  pendingQualified.value = Array.from(new Set(topTwos))
+function normalizeGroupLabel(groupName) {
+  const raw = String(groupName ?? '').trim()
+  if (!raw) return 'Gruppe'
+  return /^gruppe\b/i.test(raw) ? raw : `Gruppe ${raw}`
+}
+
+function normalizePreviewSlot(slot, idx, fallbackPrefix = 'Slot') {
+  if (!slot) return null
+  if (typeof slot === 'string') {
+    return {
+      id: `${fallbackPrefix.toLowerCase().replace(/\s+/g, '-')}-${idx}`,
+      sourceLabel: slot,
+      teamName: slot,
+      isBye: false,
+    }
+  }
+  const teamName = slot.teamName || slot.team || ''
+  return {
+    id: slot.id ?? `${fallbackPrefix.toLowerCase().replace(/\s+/g, '-')}-${idx}`,
+    sourceLabel: slot.sourceLabel || slot.label || teamName || `${fallbackPrefix} ${idx + 1}`,
+    teamName,
+    isBye: !!slot.isBye,
+  }
+}
+
+function normalizePreviewSlots(list, fallbackPrefix = 'Slot') {
+  return (list || [])
+    .map((slot, idx) => normalizePreviewSlot(slot, idx, fallbackPrefix))
+    .filter(Boolean)
+}
+
+function buildDirectQualifiedSlots(tables) {
+  const winners = []
+  const runnersUp = []
+  for (const [groupName, rows] of Object.entries(tables ?? {})) {
+    const normalizedGroup = normalizeGroupLabel(groupName)
+    if (rows?.[0]?.name) {
+      winners.push({
+        id: `direct-${groupName}-1`,
+        sourceLabel: `Sieger ${normalizedGroup}`,
+        teamName: rows[0].name,
+      })
+    }
+    if (rows?.[1]?.name) {
+      runnersUp.push({
+        id: `direct-${groupName}-2`,
+        sourceLabel: `2. ${normalizedGroup}`,
+        teamName: rows[1].name,
+      })
+    }
+  }
+
+  const slots = []
+  for (let i = 0; i < winners.length; i++) {
+    slots.push(winners[i])
+    const mirroredRunner = runnersUp[runnersUp.length - 1 - i]
+    if (mirroredRunner) slots.push(mirroredRunner)
+  }
+  return slots
+}
+
+function buildAutoAdvancedSlots(autoAdvanced, rankingCandidates) {
+  const rankedNames = (rankingCandidates || []).map(row => row?.name).filter(Boolean)
+  return (autoAdvanced || [])
+    .filter(Boolean)
+    .map((teamName, idx) => {
+      const rankingIndex = rankedNames.findIndex(name => name === teamName)
+      return {
+        id: `ranking-${idx}`,
+        sourceLabel: rankingIndex >= 0 ? `Ranking ${rankingIndex + 1}` : `Wildcard ${idx + 1}`,
+        teamName,
+      }
+    })
+}
+
+function buildPlayInWinnerSlots(matches) {
+  return (matches || [])
+    .map((match, idx) => {
+      const winner = typeof match === 'string' ? match : match?.winner
+      if (!winner) return null
+      return {
+        id: `playin-${idx}`,
+        sourceLabel: `Sieger Play-In ${idx + 1}`,
+        teamName: winner,
+      }
+    })
+    .filter(Boolean)
+}
+
+async function persistKoPreview({ slots, koSize, source, phase = 'ko_preview' }) {
+  if (!tournament.value?.id) return
+  try {
+    await api.tournaments.saveKoPreview(tournament.value.id, {
+      slots,
+      koSize,
+      teams: (slots || []).map(slot => slot.teamName).filter(Boolean),
+      source,
+      phase,
+    })
+    await api.tournaments.update(tournament.value.id, { currentPhase: phase })
+    tournament.value.current_phase = phase
+  } catch (e) {
+    console.warn('KO-Vorschau speichern fehlgeschlagen:', e)
+  }
+}
+
+async function handleCreateKoFromGroups({ tables, playIn, cupsTarget, koSize }) {
+  const directSlots = buildDirectQualifiedSlots(tables)
+  pendingQualifiedSlots.value = directSlots
+  pendingQualified.value = directSlots.map(slot => slot.teamName)
   targetKoSize.value     = koSize ?? playIn?.ko_size ?? null
   playInCandidates.value = playIn?.ranking_candidates ?? []
   playInMatches.value    = playIn?.playin_matches ?? []
@@ -304,19 +432,64 @@ function handleCreateKoFromGroups({ tables, playIn, cupsTarget, koSize }) {
   policyNotes.value      = playIn?.policy_notes ?? []
 
   if (!playIn?.playin_needed) {
-    koPreviewTeams.value = [...pendingQualified.value, ...(playIn?.auto_advanced ?? [])]
+    const previewSlots = [
+      ...directSlots,
+      ...buildAutoAdvancedSlots(playIn?.auto_advanced ?? [], playIn?.ranking_candidates ?? []),
+    ]
+    koPreviewSlots.value = previewSlots
+    koPreviewTeams.value = previewSlots.map(slot => slot.teamName).filter(Boolean)
+    cameFromPlayIn.value = false
+    await persistKoPreview({
+      slots: previewSlots,
+      koSize: targetKoSize.value,
+      source: 'groups',
+    })
     step.value = 6
   } else if (playInMatches.value.length || rageCageGroups.value.length || playInCandidates.value.length) {
+    koPreviewSlots.value = []
+    cameFromPlayIn.value = true
     step.value = 7
   } else {
+    koPreviewSlots.value = directSlots.slice()
     koPreviewTeams.value = pendingQualified.value.slice()
+    cameFromPlayIn.value = false
+    await persistKoPreview({
+      slots: koPreviewSlots.value,
+      koSize: targetKoSize.value,
+      source: 'groups',
+    })
     step.value = 6
   }
 }
 
-function handlePlayInToKo(payload) {
-  koPreviewTeams.value = (payload?.qualified ?? []).slice()
+async function handlePlayInToKo(payload) {
+  const qualified = (payload?.qualified ?? []).slice()
+  const explicitWinnerSlots = normalizePreviewSlots(payload?.previewSlots, 'Play-In')
+  const winnerSlots = explicitWinnerSlots.length
+    ? explicitWinnerSlots
+    : buildPlayInWinnerSlots(payload?.playin_matches ?? [])
+  const previewSlots = [...pendingQualifiedSlots.value, ...winnerSlots]
+  const seenTeams = new Set(previewSlots.map(slot => slot.teamName).filter(Boolean))
+
+  for (const teamName of qualified) {
+    if (!teamName || seenTeams.has(teamName)) continue
+    previewSlots.push({
+      id: `fallback-${teamName}`,
+      sourceLabel: 'Qualifiziert',
+      teamName,
+    })
+    seenTeams.add(teamName)
+  }
+
+  koPreviewSlots.value = previewSlots
+  koPreviewTeams.value = qualified
   targetKoSize.value   = payload?.koSize ?? pow2KoSize(koPreviewTeams.value.length)
+  cameFromPlayIn.value = true
+  await persistKoPreview({
+    slots: previewSlots,
+    koSize: targetKoSize.value,
+    source: 'playin',
+  })
   step.value = 6
 }
 
@@ -337,7 +510,24 @@ async function handleKoPreviewConfirm({ teams: finalTeams, koSize }) {
   }
 }
 
-function handlePreviewCancel() { step.value = cameFromPlayIn.value ? 7 : 4 }
+async function handlePreviewCancel() {
+  const fallbackPhase = cameFromPlayIn.value ? 'playin' : 'group'
+  if (tournament.value?.id) {
+    try {
+      await api.tournaments.saveKoPreview(tournament.value.id, {
+        slots: [],
+        koSize: null,
+        teams: [],
+        source: cameFromPlayIn.value ? 'playin' : 'groups',
+        phase: fallbackPhase,
+      })
+      tournament.value.current_phase = fallbackPhase
+    } catch (e) {
+      console.warn('KO-Vorschau zurücksetzen fehlgeschlagen:', e)
+    }
+  }
+  step.value = cameFromPlayIn.value ? 7 : 4
+}
 function handleKoBack()        { step.value = cameFromPlayIn.value ? 6 : 4 }
 function handleKoSaved()       { /* noop */ }
 
@@ -347,12 +537,15 @@ function _resetTournamentState() {
   teams.value          = []
   teamPlayers.value    = {}
   koPreviewTeams.value = []
+  koPreviewSlots.value = []
   pendingQualified.value = []
+  pendingQualifiedSlots.value = []
   playInMatches.value  = []
   rageCageGroups.value = []
   policyNotes.value    = []
   targetKoSize.value   = null
   playInCandidates.value = []
+  cameFromPlayIn.value = false
 }
 </script>
 

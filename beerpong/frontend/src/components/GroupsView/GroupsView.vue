@@ -10,7 +10,7 @@
         <button class="btn btn-outline-light" @click="$emit('back')">Zur Startseite</button>
         <button class="btn btn-outline-light" @click="reloadAll" :disabled="loading">Daten laden</button>
         <button class="btn btn-primary" :disabled="!canProceedKo" @click="goNext">
-          Weiter (KO/Play-In)
+          Weiter KO-Phase
         </button>
       </div>
     </div>
@@ -36,16 +36,7 @@
           <div class="col-md-4"><strong>Gruppen (Vorschau):</strong> {{ autoGroupsPreview.length || '–' }}</div>
         </div>
         <div class="mt-2">
-          <button class="btn btn-sm btn-outline-light" @click="generateGroupsFromTeams" :disabled="loading">
-            Gruppen automatisch erzeugen
-          </button>
-          <button
-            class="btn btn-sm btn-outline-secondary ms-2"
-            @click="saveGroupPhase"
-            :disabled="loading || renderGroups.length === 0"
-          >
-            Gruppenphase speichern
-          </button>
+          <!-- Buttons entfernt, da jetzt automatisch beim Erstellen -->
         </div>
       </div>
     </div>
@@ -53,12 +44,12 @@
     <!-- Ladehinweise -->
     <div v-if="loading" class="alert alert-dark border-secondary my-3">Lade…</div>
     <div v-else-if="renderGroups.length === 0" class="alert alert-dark border-secondary my-3">
-      Noch keine Gruppendaten. Klicke auf „Gruppen automatisch erzeugen“.
+      Noch keine Gruppendaten verfügbar. Bitte prüfe die Turnier-Einstellungen.
     </div>
 
     <!-- ================= LIVE TISCHE ANSICHT ================= -->
     <div v-if="viewMode === 'tables' && renderGroups.length > 0">
-      
+
       <!-- Tisch-Verwaltung -->
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h5 class="mb-0 text-light">Aktive Tische ({{ activeTableCount }})</h5>
@@ -72,19 +63,78 @@
       <div class="row g-4 mb-5">
         <div v-for="(m, i) in activeMatches" :key="m.id" class="col-12 col-xl-6">
           <div class="d-flex justify-content-between align-items-end mb-2 px-2">
-            <h4 class="text-warning mb-0 fw-bold">Tisch {{ i + 1 }}</h4>
+            <h4 class="text-warning mb-0 fw-bold">Tisch {{ m.table_no || i + 1 }}</h4>
             <span class="badge bg-secondary">{{ m.group_name }}</span>
           </div>
 
           <!-- Schützenauswahl Overlay für diesen Tisch -->
-          <div v-if="pendingShooter && pendingShooter.matchId === m.id" class="p-5 border border-warning rounded bg-dark text-center shadow-lg" style="min-height: 250px;">
+          <div v-if="pendingShooter && pendingShooter.matchId == m.id" class="p-5 border border-warning rounded bg-dark text-center shadow-lg" style="min-height: 300px;">
             <h4 class="text-warning mb-4">Treffer für {{ pendingShooter.teamName }}!</h4>
             <p class="text-light mb-4">Wer hat den Becher getroffen?</p>
-            <div class="d-flex justify-content-center gap-3">
-              <button v-if="pendingShooter.p1" class="btn btn-lg btn-success px-4 py-3 fw-bold" @click="selectShooter(pendingShooter.p1)">{{ pendingShooter.p1 }}</button>
-              <button v-if="pendingShooter.p2" class="btn btn-lg btn-success px-4 py-3 fw-bold" @click="selectShooter(pendingShooter.p2)">{{ pendingShooter.p2 }}</button>
+            <div class="d-flex justify-content-center gap-3 mb-4">
+              <button
+                v-if="pendingShooter.p1"
+                class="btn btn-lg px-4 py-3 fw-bold"
+                :class="selectedPlayer === pendingShooter.p1 ? 'btn-success scale-up' : 'btn-outline-success'"
+                @click="selectShooter(pendingShooter.p1)"
+              >
+                {{ pendingShooter.p1 }}
+              </button>
+              <button
+                v-if="pendingShooter.p2"
+                class="btn btn-lg px-4 py-3 fw-bold"
+                :class="selectedPlayer === pendingShooter.p2 ? 'btn-success scale-up' : 'btn-outline-success'"
+                @click="selectShooter(pendingShooter.p2)"
+              >
+                {{ pendingShooter.p2 }}
+              </button>
             </div>
-            <button class="btn btn-sm btn-outline-secondary mt-4" @click="cancelShooter">Überspringen</button>
+
+            <div class="d-flex justify-content-center gap-2">
+              <button class="btn btn-outline-secondary" @click="cancelShooter">Abbruch (Undo)</button>
+              <button
+                class="btn btn-primary btn-lg px-5 fw-bold"
+                :disabled="!selectedPlayer"
+                @click="confirmShooter"
+              >
+                Treffer Bestätigen
+              </button>
+            </div>
+          </div>
+
+          <!-- Abschluss-Dialog Overlay -->
+          <div v-else-if="pendingConclusion && pendingConclusion.match.id === m.id" class="p-5 border border-primary rounded bg-dark text-center shadow-lg" style="min-height: 300px;">
+            <h4 class="text-primary mb-4">Spielabschluss</h4>
+
+            <!-- Step 1: Nachwurf? -->
+            <template v-if="pendingConclusion.step === 'NACHWURF'">
+              <p class="text-light mb-4 fs-5">Alle Becher getroffen! Gibt es einen <strong>Nachwurf</strong>?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-primary px-4 fw-bold" @click="conclusionStep('ALL_HIT')">Ja (Nachwurf)</button>
+                <button class="btn btn-lg btn-outline-primary px-4 fw-bold" @click="conclusionStep('END_QUERY')">Nein (Direkter Sieg)</button>
+              </div>
+            </template>
+
+            <!-- Step 2: Alle getroffen? -->
+            <template v-else-if="pendingConclusion.step === 'ALL_HIT'">
+              <p class="text-light mb-4 fs-5">Wurden beim Nachwurf <strong>alle verbleibenden Becher</strong> getroffen?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-warning px-4 fw-bold" @click="conclusionOvertime()">Ja (Verlängerung 3 Becher)</button>
+                <button class="btn btn-lg btn-outline-primary px-4 fw-bold" @click="conclusionStep('END_QUERY')">Nein (Sieg nach Nachwurf)</button>
+              </div>
+            </template>
+
+            <!-- Step 3: Spiel beenden? -->
+            <template v-else-if="pendingConclusion.step === 'END_QUERY'">
+              <p class="text-light mb-4 fs-5">Soll das Spiel jetzt <strong>final beendet</strong> werden?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-success px-4 fw-bold" @click="finishConclusion(true)">Ja (Spiel abschließen)</button>
+                <button class="btn btn-lg btn-outline-danger px-4 fw-bold" @click="finishConclusion(false)">Nein (Zurück zum Spielstand)</button>
+              </div>
+            </template>
+
+            <button v-if="pendingConclusion.step !== 'NACHWURF'" class="btn btn-sm btn-outline-secondary mt-5" @click="conclusionBack">← Zurück</button>
+            <button v-else class="btn btn-sm btn-outline-secondary mt-5" @click="pendingConclusion = null">Abbrechen</button>
           </div>
 
           <!-- Tisch Ansicht -->
@@ -143,64 +193,13 @@
 
           <!-- Tabelle -->
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-dark table-hover mb-0">
-                <thead>
-                  <tr>
-                    <th class="ps-3">#</th>
-                    <th>Team</th>
-                    <th class="text-center">Status</th>
-                    <th class="text-center">Punkte</th>
-                    <th class="text-center">Siege</th>
-                    <th class="text-center">Niederl.</th>
-                    <th class="text-center">B+</th>
-                    <th class="text-center">B-</th>
-                    <th class="text-center">±</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(row, idx) in getFinalStandings(group.name)"
-                    :key="row.name + idx"
-                    :class="getRowClass(idx)"
-                  >
-                    <td class="ps-3 fw-bold">{{ idx + 1 }}.</td>
-                    <td class="text-truncate" style="max-width: 160px;" :title="row.name">
-                      {{ formatTeamName(row.name, 26) }}
-                      <span
-                        v-if="markTiebreak(group.name, idx)"
-                        class="badge bg-warning text-dark ms-1"
-                        title="Teil der Tiebreak-Konstellation"
-                      >
-                        TB
-                      </span>
-                    </td>
-                    <td class="text-center">
-                      <span class="badge rounded-pill" :class="statusBadge(idx)">
-                        {{ statusLabel(idx) }}
-                      </span>
-                    </td>
-                    <td class="text-center fw-bold">{{ row.points }}</td>
-                    <td class="text-center text-success">{{ row.wins }}</td>
-                    <td class="text-center text-danger">{{ row.losses }}</td>
-                    <td class="text-center">{{ row.cupsFor }}</td>
-                    <td class="text-center">{{ row.cupsAgainst }}</td>
-                    <td
-                      class="text-center"
-                      :class="{
-                        'text-success': row.cupsDiff > 0,
-                        'text-danger': row.cupsDiff < 0
-                      }"
-                    >
-                      {{ row.cupsDiff > 0 ? '+' : '' }}{{ row.cupsDiff }}
-                    </td>
-                  </tr>
-                  <tr v-if="getFinalStandings(group.name).length === 0">
-                    <td colspan="9" class="text-center text-light">Noch keine Daten</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <GroupStandingsTable
+              :rows="getFinalStandings(group.name)"
+              :active-teams="activeTeamNames"
+              :status-for="(_row, idx) => standingStatus(group.name, idx)"
+              max-name-width="180px"
+              empty-text="Noch keine Daten"
+            />
 
             <!-- Last Cup Shoot-Off Panel -->
             <div v-if="perGroupTiebreak[group.name] || lastCupElimState[group.name]" class="p-3 border-top border-warning">
@@ -279,20 +278,8 @@
 
     <!-- Play-In/KO-Block -->
     <div class="card bg-dark border-secondary my-4" v-if="renderGroups.length">
-      <div class="card-header bg-dark border-secondary d-flex align-items-center justify-content-between">
+      <div class="card-header bg-dark border-secondary">
         <strong>Play-In / KO-Vorbereitung</strong>
-        <div class="d-flex gap-2">
-          <button class="btn btn-outline-light btn-sm" @click="recalculateTables">
-            Tabellen berechnen
-          </button>
-          <button
-            class="btn btn-success btn-sm"
-            @click="computePlayInLocal"
-            :disabled="teamsDone < 2"
-          >
-            Play-In prüfen
-          </button>
-        </div>
       </div>
       <div class="card-body">
         <div v-if="playInResult" class="mb-3">
@@ -344,6 +331,22 @@
                       >
                         {{ m.cups_per_game || cupsTarget }} B.
                       </span>
+                    </div>
+                  </template>
+
+                  <template v-else-if="playInResult.last_cup_shootoff">
+                    <div class="alert alert-dark border-warning mb-0">
+                      <div class="text-warning fw-bold mb-2">Last Cup Shoot-Off</div>
+                      <div class="d-flex flex-wrap gap-1">
+                        <span
+                          v-for="t in playInResult.last_cup_shootoff.teams"
+                          :key="t"
+                          class="badge bg-secondary"
+                        >
+                          {{ t }}
+                        </span>
+                      </div>
+                      <div class="small text-light mt-2">{{ playInResult.last_cup_shootoff.note }}</div>
                     </div>
                   </template>
 
@@ -402,6 +405,102 @@
           </div>
 
           <div
+            v-if="playInResult.last_cup_shootoff || playInShootOffState"
+            class="card bg-dark border-warning mt-3"
+          >
+            <div class="card-header bg-dark border-warning text-warning">
+              <strong>⚡ Play-In Shoot-Off</strong>
+            </div>
+            <div class="card-body">
+              <template v-if="activePlayInShootOffPlan && !playInShootOffState">
+                <div class="text-secondary small mb-2">{{ activePlayInShootOffPlan.note }}</div>
+                <button class="btn btn-sm btn-warning" @click="startPlayInShootOff">
+                  Shoot-Off starten
+                </button>
+              </template>
+
+              <template v-else-if="playInShootOffState && !playInShootOffState.done">
+                <div class="text-secondary small mb-3">
+                  Runde <strong class="text-white">{{ playInShootOffState.roundCount }}</strong>
+                  — Wer trifft den letzten Becher?
+                </div>
+
+                <div
+                  v-if="playInShootOffState.topPlaced.length || playInShootOffState.bottomPlaced.length"
+                  class="mb-2 d-flex flex-wrap gap-1"
+                >
+                  <span
+                    v-for="t in playInShootOffState.topPlaced"
+                    :key="'playin-top-' + t"
+                    class="badge bg-success"
+                  >
+                    ✓ {{ t }}
+                  </span>
+                  <span
+                    v-for="t in playInShootOffState.bottomPlaced"
+                    :key="'playin-bottom-' + t"
+                    class="badge bg-danger"
+                  >
+                    ✗ {{ t }}
+                  </span>
+                </div>
+
+                <div
+                  v-for="team in playInShootOffState.remaining"
+                  :key="'playin-round-' + team"
+                  class="d-flex align-items-center gap-2 mb-2"
+                >
+                  <span class="flex-fill fw-bold text-white small">{{ team }}</span>
+                  <button
+                    class="btn btn-sm"
+                    :class="playInShootOffState.currentRound[team] === 'hit' ? 'btn-success' : 'btn-outline-success'"
+                    @click="setPlayInShootOffResult(team, 'hit')"
+                  >
+                    ✓ Treffer
+                  </button>
+                  <button
+                    class="btn btn-sm"
+                    :class="playInShootOffState.currentRound[team] === 'miss' ? 'btn-danger' : 'btn-outline-danger'"
+                    @click="setPlayInShootOffResult(team, 'miss')"
+                  >
+                    ✗ Fehler
+                  </button>
+                </div>
+
+                <div class="d-flex gap-2 mt-3">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="!isPlayInShootOffRoundComplete"
+                    @click="evaluatePlayInShootOff"
+                  >
+                    Runde auswerten
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="resetPlayInShootOff">
+                    Neu starten
+                  </button>
+                </div>
+              </template>
+
+              <template v-else-if="playInShootOffState?.done">
+                <div class="text-success small fw-bold mb-2">✅ Shoot-Off abgeschlossen!</div>
+                <div
+                  v-for="(t, i) in playInShootOffState.finalRanking"
+                  :key="'playin-final-' + t"
+                  class="d-flex align-items-center gap-2 mb-1 small"
+                >
+                  <span class="badge" :class="isPlayInQualifiedIndex(i) ? 'bg-success' : 'bg-danger'">
+                    {{ isPlayInQualifiedIndex(i) ? 'Weiter' : 'Raus' }}
+                  </span>
+                  <span class="text-white">{{ t }}</span>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary mt-2" @click="resetPlayInShootOff">
+                  Wiederholen
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <div
             v-if="(playInResult.policy_notes?.length || 0) > 0"
             class="alert alert-dark border-secondary mt-3"
           >
@@ -418,7 +517,7 @@
             @click="goNext"
             :disabled="!canProceedKo"
           >
-            Weiter (KO/Play-In)
+            Weiter KO-Phase
           </button>
         </div>
       </div>
@@ -435,15 +534,28 @@
         Treffen oder fehlen alle: Runde wird wiederholt.
       </p>
       <p class="mb-0 text-secondary">
-        <strong>Sonst:</strong> Standard-Sortierung: Punkte → Becher-Diff → Becher+ → Name.
+        <strong>Sonst:</strong> Standard-Sortierung: Punkte → Becher-Diff → Becher+.
       </p>
+    </div>
+
+    <div v-if="!allGroupsComplete" class="alert alert-dark border-warning mt-3">
+      Alle Gruppenspiele muessen abgeschlossen sein, bevor KO oder Play-In gestartet werden koennen.
     </div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
+import { api } from '../../api.js'
 import MatchTableControls from '../MatchTableControls.vue'
+import GroupStandingsTable from '../GroupStandingsTable.vue'
+import {
+  buildStableTableAssignmentMap,
+  getAssignedActiveMatches,
+  getUpcomingMatches,
+  getTableNo,
+  matchKey,
+} from '../../utils/tableAssignments.js'
 
 /** API-Base — Vite proxy routes /tournaments/* to Django */
 const API = import.meta.env.VITE_API_BASE || ''
@@ -475,6 +587,9 @@ const perGroupTiebreak = ref({}) // { "Gruppe A": { type:'LAST_CUP_ELIM', teams:
 const lastCupElimState = ref({})
 // { "Gruppe A": { roundCount, remaining, currentRound, topPlaced, bottomPlaced, done, finalRanking, fixedFirst } }
 
+/** Interaktiver Shoot-Off-State fuer gruppenuebergreifenden Play-In-Cutoff */
+const playInShootOffState = ref(null)
+
 /** Save-Status + Timer */
 const saveState = ref('idle')
 let autosaveTimer = null
@@ -482,6 +597,10 @@ const AUTOSAVE_MS = 400
 
 /** Schützenauswahl: { groupName, matchIndex, teamKey } | null */
 const pendingShooter = ref(null)
+const selectedPlayer = ref(null)
+
+/** Abschluss-Logik: { match, groupName, matchIndex, step: 'NACHWURF' | 'ALL_HIT' | 'END_QUERY' } */
+const pendingConclusion = ref(null)
 
 /** Derived */
 const cupsTarget = computed(() => {
@@ -489,6 +608,10 @@ const cupsTarget = computed(() => {
   return Number.isNaN(v) ? 6 : v
 })
 const teamsDone = computed(() => props.teams?.length || 0)
+const allGroupsComplete = computed(() =>
+  renderGroups.value.length > 0 &&
+  renderGroups.value.every(group => isGroupComplete(group.name))
+)
 
 const dynamicTableCount = ref(null)
 const activeTableCount = computed({
@@ -499,6 +622,16 @@ const activeTableCount = computed({
   },
   set(val) {
     dynamicTableCount.value = val
+  }
+})
+
+watch(activeTableCount, async (newCount) => {
+  if (!props.tournamentId) return
+  try {
+    await api.tournaments.update(props.tournamentId, { tableCount: newCount })
+    syncTableAssignments()
+  } catch (e) {
+    console.error('Failed to sync table count', e)
   }
 })
 
@@ -543,43 +676,44 @@ const renderGroups = computed(() => {
   })
 })
 
-/** Globale Warteschlange für Live-Tische */
-const allMatchesFlat = computed(() => {
-  const arr = []
-  for (const [gName, ms] of Object.entries(groupMatches.value)) {
-    for (let i = 0; i < ms.length; i++) {
-      arr.push({ ...ms[i], group_name: gName, originalIndex: i })
-    }
+const activeMatches = computed(() =>
+  getAssignedActiveMatches(groupMatches.value, activeTableCount.value)
+)
+
+const upcomingMatches = computed(() =>
+  getUpcomingMatches(groupMatches.value, activeTableCount.value, 5)
+)
+
+const activeTeamNames = computed(() => {
+  const teams = new Set()
+  for (const match of activeMatches.value) {
+    if (match.team1) teams.add(match.team1)
+    if (match.team2) teams.add(match.team2)
   }
-  // Interleave Matches für alle Gruppen
-  arr.sort((a, b) => {
-    if (a.order_index !== b.order_index) return a.order_index - b.order_index
-    return a.group_name.localeCompare(b.group_name, 'de')
-  })
-  return arr
+  return Array.from(teams)
 })
 
-const pendingMatches = computed(() => allMatchesFlat.value.filter(m => !m.winner))
+function syncTableAssignments(shouldSave = true) {
+  const desiredAssignments = buildStableTableAssignmentMap(groupMatches.value, activeTableCount.value)
+  let changed = false
+  const nextMatches = {}
 
-const activeMatches = computed(() => {
-  const active = []
-  const playingTeams = new Set()
-  
-  for (const m of pendingMatches.value) {
-    if (active.length >= activeTableCount.value) break
-    if (!playingTeams.has(m.team1) && !playingTeams.has(m.team2)) {
-      active.push(m)
-      playingTeams.add(m.team1)
-      playingTeams.add(m.team2)
-    }
+  for (const [groupName, matches] of Object.entries(groupMatches.value || {})) {
+    nextMatches[groupName] = (matches || []).map(match => {
+      const desiredTableNo = match.winner ? null : (desiredAssignments.get(matchKey({ ...match, group_name: match.group_name || groupName })) ?? null)
+      const currentTableNo = getTableNo(match)
+      if (currentTableNo === desiredTableNo) return match
+      changed = true
+      return { ...match, table_no: desiredTableNo }
+    })
   }
-  return active
-})
 
-const upcomingMatches = computed(() => {
-  const activeIds = new Set(activeMatches.value.map(m => m.id))
-  return pendingMatches.value.filter(m => !activeIds.has(m.id)).slice(0, 5)
-})
+  if (!changed) return false
+  groupMatches.value = nextMatches
+  emit('update:group-matches', groupMatches.value)
+  if (shouldSave) scheduleAutoSave()
+  return true
+}
 
 /* ---------------- Backend I/O ---------------- */
 
@@ -654,6 +788,7 @@ async function reloadAll() {
       .sort((a, b) => a.name.localeCompare(b.name, 'de'))
 
     groupMatches.value = mapped
+    syncTableAssignments()
 
     // Tiebreaks neu berechnen – nur für abgeschlossene Gruppen
     perGroupTiebreak.value = computeAllTiebreaksForCompletedGroups()
@@ -675,7 +810,14 @@ async function saveGroupPhase() {
         teams: g.teams
       })),
       matches: Object.fromEntries(
-        Object.entries(groupMatches.value).map(([g, ms]) => [g, ms])
+        Object.entries(groupMatches.value).map(([g, ms]) => [
+          g,
+          ms.map(m => ({
+            ...m,
+            history_team1: m.history_team1 || [],
+            history_team2: m.history_team2 || []
+          }))
+        ])
       )
     }
   }
@@ -720,6 +862,31 @@ watch(
   }
 )
 
+// NEU: Reagiere auf WebSocket-Updates im Store
+import { useTournamentStore } from '../../stores/tournament.js'
+const store = useTournamentStore()
+watch(() => store.groupPhase, (newGp) => {
+  // Verhindere das Schließen von Overlays durch WebSocket-Updates
+  if (pendingShooter.value || pendingConclusion.value) return
+
+  if (newGp?.matches) {
+    const mapped = {}
+    for (const [gName, ms] of Object.entries(newGp.matches)) {
+      mapped[gName] = normalizeMatches(ms)
+    }
+    groupMatches.value = mapped
+    perGroupTiebreak.value = computeAllTiebreaksForCompletedGroups()
+    computePlayInLocal()
+  }
+}, { deep: true })
+
+watch(() => store.groupStandings, (newStandings) => {
+  if (pendingShooter.value || pendingConclusion.value) return
+  if (newStandings) {
+    groupStandingsSrv.value = normalizeStandingsMap(newStandings)
+  }
+}, { deep: true })
+
 /* Debounced Full Auto-Save */
 function scheduleAutoSave() {
   if (autosaveTimer) clearTimeout(autosaveTimer)
@@ -752,6 +919,7 @@ function generateGroupsFromTeams() {
     }
   }
   groupMatches.value = nextMatches
+  syncTableAssignments(false)
 
   const metaBy = Object.fromEntries(
     lastGroupsMeta.value.map(g => [
@@ -798,6 +966,7 @@ function ensureGroupMatches(group) {
   }))
 
   groupMatches.value = { ...groupMatches.value, [name]: ms }
+  syncTableAssignments(false)
   emit('update:group-matches', groupMatches.value)
   scheduleAutoSave()
 }
@@ -831,14 +1000,28 @@ function onLiveCupHit(groupName, matchIndex, payload) {
   const { teamKey, cupIndex } = payload
   const list = [...groupMatches.value[groupName]]
   const match = list[matchIndex]
-  const teamName = teamKey === 'team2' ? match.team1 : match.team2
-  
-  const players = props.teamPlayers[teamName]
-  if (players && (players.player1 || players.player2)) {
-    pendingShooter.value = { matchId: match.id, groupName, matchIndex, teamKey, teamName, cupIndex, fromTable: true, p1: players.player1, p2: players.player2 }
-    return
+
+  // Schütze ist das Team, das NICHT getroffen wurde
+  const shooterTeamKey = teamKey === 'team1' ? 'team2' : 'team1'
+  const shooterTeamName = shooterTeamKey === 'team1' ? match.team1 : match.team2
+
+  // Robuster Lookup: Suche im Store nach dem Teamnamen (Case-Insensitive & Trimmed)
+  const allPlayerKeys = Object.keys(store.teamPlayers || {})
+  const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === shooterTeamName.trim().toLowerCase())
+  const players = store.teamPlayers[exactKey || shooterTeamName]
+
+  pendingShooter.value = {
+    matchId: match.id,
+    groupName,
+    matchIndex,
+    teamKey,
+    teamName: shooterTeamName,
+    cupIndex,
+    fromTable: true,
+    p1: players?.player1 || 'Spieler 1',
+    p2: players?.player2 || 'Spieler 2',
   }
-  _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, null)
+  selectedPlayer.value = null
 }
 
 function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName) {
@@ -846,30 +1029,47 @@ function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName) {
   const m = { ...list[matchIndex] }
 
   const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
-  
+
   // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
   if (!m[stateKey] || !Array.isArray(m[stateKey])) {
     m[stateKey] = Array(cupsTarget.value).fill(true)
   }
-  
+
   const stateArray = [...m[stateKey]]
   stateArray[cupIndex] = false
   m[stateKey] = stateArray
-  
+
   const historyKey = teamKey === 'team1' ? 'hit_history_team1' : 'hit_history_team2'
   if (!m[historyKey]) m[historyKey] = []
   m[historyKey].push(cupIndex)
 
+  const genHistoryKey = teamKey === 'team1' ? 'history_team1' : 'history_team2'
+  if (!m[genHistoryKey]) m[genHistoryKey] = []
+  m[genHistoryKey].push({ type: 'hit', idx: cupIndex })
+
   if (teamKey === 'team2') {
-    m.cups_team1 = clampInt((m.cups_team1 || 0) + 1, 0, cupsTarget.value)
+    m.cups_team1 = clampInt((m.cups_team1 || 0) + 1, 0, cupsTarget.value + 3) // +3 for overtime safety
   } else {
-    m.cups_team2 = clampInt((m.cups_team2 || 0) + 1, 0, cupsTarget.value)
+    m.cups_team2 = clampInt((m.cups_team2 || 0) + 1, 0, cupsTarget.value + 3)
   }
 
-  applyWinnerRule(m)
+  // Check if ALL cups of the hit team are gone
+  const standingCups = (m[stateKey] || []).filter(v => v).length
+
+  // Beende nicht sofort, sondern starte Abschluss-Dialog wenn alle Becher weg sind
+  if (standingCups === 0) {
+    if (m.is_overtime) {
+      // In der Verlängerung direkt zur End-Abfrage springen (kein Nachwurf mehr)
+      pendingConclusion.value = { match: m, groupName, matchIndex, step: 'END_QUERY', history: ['END_QUERY'] }
+    } else {
+      pendingConclusion.value = { match: m, groupName, matchIndex, step: 'NACHWURF', history: ['NACHWURF'] }
+    }
+  }
+
   list[matchIndex] = m
   groupMatches.value[groupName] = list
   emit('update:group-matches', groupMatches.value)
+  syncTableAssignments(false)
 
   if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
   else clearGroupTiebreak(groupName)
@@ -883,47 +1083,56 @@ function onLiveUndo(groupName, matchIndex, payload) {
   const { teamKey } = payload
   const list = [...groupMatches.value[groupName]]
   const m = { ...list[matchIndex] }
-  
+
   const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
-  const historyKey = teamKey === 'team1' ? 'hit_history_team1' : 'hit_history_team2'
-  
+  const genHistoryKey = teamKey === 'team1' ? 'history_team1' : 'history_team2'
+
   // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
   if (!m[stateKey] || !Array.isArray(m[stateKey])) {
     m[stateKey] = Array(cupsTarget.value).fill(true)
   }
-  
-  let restoredCupIndex = -1
 
-  if (m[historyKey] && m[historyKey].length > 0) {
-    const history = [...m[historyKey]]
-    restoredCupIndex = history.pop()
-    m[historyKey] = history
-  } else if (m[stateKey]) {
-    // Fallback: Falls die Seite neu geladen wurde und die Historie leer ist,
-    // stelle einfach den ersten fehlenden Becher wieder her
-    restoredCupIndex = m[stateKey].indexOf(false)
-  }
-  
-  if (restoredCupIndex !== -1) {
-    // Becher wieder aufstellen
-    m[stateKey][restoredCupIndex] = true
-    
-    // Punktzahl wieder abziehen (Wenn Team 2 den Becher zurückbekommt, verliert Team 1 den Punkt)
-    if (teamKey === 'team2') {
-      m.cups_team1 = clampInt((m.cups_team1 || 0) - 1, 0, cupsTarget.value)
-    } else {
-      m.cups_team2 = clampInt((m.cups_team2 || 0) - 1, 0, cupsTarget.value)
+  if (m[genHistoryKey] && m[genHistoryKey].length > 0) {
+    const history = [...m[genHistoryKey]]
+    const lastAction = history.pop()
+    m[genHistoryKey] = history
+
+    if (lastAction.type === 'hit') {
+      const restoredCupIndex = lastAction.idx
+      // Becher wieder aufstellen
+      m[stateKey][restoredCupIndex] = true
+
+      // Hit-History bereinigen (parallel zur neuen History)
+      const hitHistKey = teamKey === 'team1' ? 'hit_history_team1' : 'hit_history_team2'
+      if (m[hitHistKey] && m[hitHistKey].length > 0) {
+        const hh = [...m[hitHistKey]]
+        if (hh[hh.length - 1] === restoredCupIndex) hh.pop()
+        m[hitHistKey] = hh
+      }
+
+      // Punktzahl wieder abziehen
+      if (teamKey === 'team2') {
+        m.cups_team1 = clampInt((m.cups_team1 || 0) - 1, 0, cupsTarget.value)
+      } else {
+        m.cups_team2 = clampInt((m.cups_team2 || 0) - 1, 0, cupsTarget.value)
+      }
+    } else if (lastAction.type === 'rerack') {
+      // Re-Rack rückgängig machen
+      m[stateKey] = lastAction.state
+      if (teamKey === 'team1') m.team1_rerack_used = false
+      if (teamKey === 'team2') m.team2_rerack_used = false
     }
-    
+
     applyWinnerRule(m)
     list[matchIndex] = m
     groupMatches.value[groupName] = list
     emit('update:group-matches', groupMatches.value)
-    
+    syncTableAssignments(false)
+
     if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
     else clearGroupTiebreak(groupName)
-    
-    const eventData = { action_type: 'undo', team_key: teamKey, cup_index: restoredCupIndex }
+
+    const eventData = { action_type: 'undo', team_key: teamKey }
     _sendGroupMatch(groupName, m, eventData)
     scheduleAutoSave()
   }
@@ -933,24 +1142,27 @@ function onLiveRerack(groupName, matchIndex, payload) {
   const { teamKey, newState } = payload
   const list = [...groupMatches.value[groupName]]
   const m = { ...list[matchIndex] }
-  
+
   const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
-  
+
   // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
   if (!m[stateKey] || !Array.isArray(m[stateKey])) {
     m[stateKey] = Array(cupsTarget.value).fill(true)
   }
-  
+
   const previousState = [...m[stateKey]]
-  
+  const genHistoryKey = teamKey === 'team1' ? 'history_team1' : 'history_team2'
+  if (!m[genHistoryKey]) m[genHistoryKey] = []
+  m[genHistoryKey].push({ type: 'rerack', state: previousState })
+
   if (teamKey === 'team1') m.team1_rerack_used = true
   if (teamKey === 'team2') m.team2_rerack_used = true
   m[stateKey] = newState
-  
+
   list[matchIndex] = m
   groupMatches.value[groupName] = list
   emit('update:group-matches', groupMatches.value)
-  
+
   const eventData = { action_type: 'rerack', team_key: teamKey, previous_state: JSON.stringify(previousState) }
   _sendGroupMatch(groupName, m, eventData)
   scheduleAutoSave()
@@ -970,6 +1182,7 @@ function setCups(groupName, matchIndex, teamField, rawValue) {
   updated[groupName] = list
   groupMatches.value = updated
   emit('update:group-matches', updated)
+  syncTableAssignments(false)
 
   if (isGroupComplete(groupName)) {
     recomputePerGroupTiebreak(groupName)
@@ -986,16 +1199,25 @@ function incrementCups(groupName, matchIndex, teamKey) {
   const players = props.teamPlayers[teamName]
   // If team has named players, ask who scored first
   if (players && (players.player1 || players.player2)) {
-    pendingShooter.value = { groupName, matchIndex, teamKey, teamName }
+    pendingShooter.value = { matchId: match.id, groupName, matchIndex, teamKey, teamName }
+    selectedPlayer.value = null
     return
   }
   _doIncrementCups(groupName, matchIndex, teamKey, null, null)
 }
 
 function selectShooter(playerName) {
-  if (!pendingShooter.value) return
+  selectedPlayer.value = playerName
+}
+
+function confirmShooter() {
+  if (!pendingShooter.value || !selectedPlayer.value) return
   const { groupName, matchIndex, teamKey, teamName, cupIndex, fromTable } = pendingShooter.value
+  const playerName = selectedPlayer.value
+
   pendingShooter.value = null
+  selectedPlayer.value = null
+
   if (fromTable) {
     _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, playerName)
   } else {
@@ -1005,13 +1227,8 @@ function selectShooter(playerName) {
 
 function cancelShooter() {
   if (!pendingShooter.value) return
-  const { groupName, matchIndex, teamKey, cupIndex, fromTable } = pendingShooter.value
   pendingShooter.value = null
-  if (fromTable) {
-    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, null)
-  } else {
-    _doIncrementCups(groupName, matchIndex, teamKey, null, null)
-  }
+  selectedPlayer.value = null
 }
 
 function _doIncrementCups(groupName, matchIndex, teamKey, shooter, shooterTeam) {
@@ -1020,13 +1237,15 @@ function _doIncrementCups(groupName, matchIndex, teamKey, shooter, shooterTeam) 
   const m = { ...list[matchIndex] }
 
   const field = teamKey === 'team1' ? 'cups_team1' : 'cups_team2'
-  m[field] = clampInt(safeNum(m[field]) + 1, 0, cupsTarget.value)
+  // Erlaube bis zu 3 Becher mehr für die Verlängerung
+  m[field] = clampInt(safeNum(m[field]) + 1, 0, cupsTarget.value + 3)
 
   applyWinnerRule(m)
   list[matchIndex] = m
   updated[groupName] = list
   groupMatches.value = updated
   emit('update:group-matches', updated)
+  syncTableAssignments(false)
 
   if (isGroupComplete(groupName)) {
     recomputePerGroupTiebreak(groupName)
@@ -1061,8 +1280,14 @@ async function _sendGroupMatch(groupName, match, eventData) {
       cups_state_team2: match.cups_state_team2,
       hit_history_team1: match.hit_history_team1,
       hit_history_team2: match.hit_history_team2,
+      history_team1: match.history_team1 || [],
+      history_team2: match.history_team2 || [],
       team1_rerack_used: match.team1_rerack_used,
       team2_rerack_used: match.team2_rerack_used,
+      is_overtime: !!match.is_overtime,
+      table_no: getTableNo(match),
+      shooter: eventData?.player_name || null,
+      shooter_team: eventData?.team_name || null,
       event_data: eventData || null
     }
     await fetch(`${API}/tournaments/${props.tournamentId}/group-match`, {
@@ -1089,15 +1314,122 @@ function recalculateTables() {
     if (isGroupComplete(g)) recomputePerGroupTiebreak(g)
     else clearGroupTiebreak(g)
   }
+  if (playInResult.value) computePlayInLocal()
 }
 
 function chooseKoSize(qualified) {
+  if (qualified <= 0) return 0
   const sizes = [4, 8, 16, 32, 64, 128]
   for (const k of sizes) if (k >= qualified) return k
   return qualified
 }
 
-function computePlayInLocal() {
+function normalizeRankingCandidate(row) {
+  return {
+    name: String(row?.name || ''),
+    points: Number(row?.points || 0),
+    cupsDiff: Number(
+      (row?.cupsDiff ?? (row?.cupsFor || 0) - (row?.cupsAgainst || 0)) || 0
+    ),
+    cupsFor: Number(row?.cupsFor || 0)
+  }
+}
+
+function compareRankingCandidates(a, b) {
+  if (b.points !== a.points) return b.points - a.points
+  if (b.cupsDiff !== a.cupsDiff) return b.cupsDiff - a.cupsDiff
+  if (b.cupsFor !== a.cupsFor) return b.cupsFor - a.cupsFor
+  return 0
+}
+
+function equalRankingMetrics(x, y) {
+  return !!(
+    x &&
+    y &&
+    x.points === y.points &&
+    x.cupsDiff === y.cupsDiff &&
+    x.cupsFor === y.cupsFor
+  )
+}
+
+function buildShootOffPlan(teams, options = {}) {
+  return {
+    group: options.group || 'Shoot-Off',
+    type: 'LAST_CUP_ELIM',
+    teams: teams.slice(),
+    fixedFirst: options.fixedFirst ?? null,
+    qualifyingSlots: options.qualifyingSlots ?? null,
+    note:
+      options.note ||
+      '1 Becher, alle Teams werfen nacheinander. Wer allein nicht trifft, scheidet aus.'
+  }
+}
+
+function sameShootOffTeams(state, plan) {
+  if (!state || !plan) return false
+  const left = (state.sourceTeams || []).slice().sort((a, b) => a.localeCompare(b, 'de'))
+  const right = (plan.teams || []).slice().sort((a, b) => a.localeCompare(b, 'de'))
+  return left.length === right.length && left.every((team, idx) => team === right[idx])
+}
+
+function createShootOffState(plan) {
+  return {
+    sourceTeams: plan.teams.slice(),
+    roundCount: 1,
+    remaining: plan.teams.slice(),
+    currentRound: Object.fromEntries(plan.teams.map(team => [team, null])),
+    topPlaced: [],
+    bottomPlaced: [],
+    done: false,
+    finalRanking: [],
+    fixedFirst: plan.fixedFirst ?? null,
+    qualifyingSlots: plan.qualifyingSlots ?? null,
+  }
+}
+
+function nextShootOffState(state) {
+  if (!state || state.done) return state
+  const hitters = state.remaining.filter(team => state.currentRound[team] === 'hit')
+  const missers = state.remaining.filter(team => state.currentRound[team] === 'miss')
+
+  if (hitters.length === 0 || missers.length === 0) {
+    return {
+      ...state,
+      roundCount: state.roundCount + 1,
+      currentRound: Object.fromEntries(state.remaining.map(team => [team, null]))
+    }
+  }
+
+  let newTopPlaced = [...state.topPlaced]
+  let newBottomPlaced = [...state.bottomPlaced]
+  let newRemaining = []
+
+  if (hitters.length === 1) {
+    newTopPlaced = [...newTopPlaced, hitters[0]]
+    newRemaining = missers
+  } else {
+    newBottomPlaced = [...newBottomPlaced, missers[0]]
+    newRemaining = hitters
+  }
+
+  const done = newRemaining.length <= 1
+  const finalRanking = done
+    ? [...newTopPlaced, ...newRemaining, ...newBottomPlaced.slice().reverse()]
+    : []
+
+  return {
+    ...state,
+    topPlaced: newTopPlaced,
+    bottomPlaced: newBottomPlaced,
+    remaining: newRemaining,
+    roundCount: state.roundCount + 1,
+    currentRound: done ? {} : Object.fromEntries(newRemaining.map(team => [team, null])),
+    done,
+    finalRanking
+  }
+}
+
+function buildPlayInResult() {
   const tables = buildTablesForAllGroups()
   const groupNames = Object.keys(tables)
   const directQualified = []
@@ -1110,31 +1442,57 @@ function computePlayInLocal() {
   const sizeByGroup = {}
   for (const g of renderGroups.value) sizeByGroup[g.name] = g.teams.length
 
-  for (const g of groupNames) {
-    const rows = tables[g] || []
-
-    if (isGroupComplete(g)) {
-      const plan = detectGroupTiebreak(g, rows)
-      if (plan) tiebreakPlans.push(plan)
+  if (!allGroupsComplete.value) {
+    return {
+      ready_for_knockout: false,
+      playin_needed: false,
+      ko_size: 0,
+      direct_qualified: [],
+      auto_advanced: [],
+      ranking_candidates: [],
+      tiebreaks: [],
+      rage_cage_groups: [],
+      playin_matches: [],
+      last_cup_shootoff: null,
+      policy_notes: [
+        'Noch nicht alle Gruppenspiele sind abgeschlossen.'
+      ]
     }
-
-    if (rows[0]) directQualified.push(rows[0].name)
-    if (rows[1]) directQualified.push(rows[1].name)
-    if (rows[2]) thirdPlaces.push(rows[2])
-    if (rows[3]) fourthPlaces.push(rows[3])
   }
 
-  const qualified = directQualified.length
-  const koSize = chooseKoSize(qualified)
-  const slotsNeeded = Math.max(0, koSize - qualified)
+  for (const g of groupNames) {
+    const rows = tables[g] || []
+    const plan = detectGroupTiebreak(g, rows)
+    if (plan) tiebreakPlans.push(plan)
+
+    if (!plan) {
+      if (rows[0]) directQualified.push(rows[0].name)
+      if (rows[1]) directQualified.push(rows[1].name)
+      if (rows[2]) thirdPlaces.push(rows[2])
+      if (rows[3]) fourthPlaces.push(rows[3])
+      continue
+    }
+
+    if (plan.fixedFirst) {
+      directQualified.push(plan.fixedFirst)
+    }
+  }
+
+  const potentialQualified = groupNames.reduce(
+    (count, groupName) => count + Math.min(2, (tables[groupName] || []).length),
+    0
+  )
+  const koSize = chooseKoSize(potentialQualified)
+  const slotsNeeded = Math.max(0, koSize - directQualified.length)
 
   const notes = []
   notes.push(
     `Es werden ${slotsNeeded} zusätzliche Platz/Plätze benötigt, um auf ${koSize} KO-Teams zu kommen.`
   )
 
-  if (slotsNeeded === 0) {
-    playInResult.value = {
+  if (tiebreakPlans.length > 0) {
+    return {
+      ready_for_knockout: false,
       playin_needed: false,
       ko_size: koSize,
       direct_qualified: directQualified,
@@ -1142,9 +1500,29 @@ function computePlayInLocal() {
       ranking_candidates: [],
       tiebreaks: tiebreakPlans,
       rage_cage_groups: rageCageGroups,
+      playin_matches: [],
+      last_cup_shootoff: null,
+      policy_notes: [
+        'Es gibt noch offene gruppeninterne Last Cup Shoot-Offs.',
+        ...notes,
+      ]
+    }
+  }
+
+  if (slotsNeeded === 0) {
+    return {
+      ready_for_knockout: true,
+      playin_needed: false,
+      ko_size: koSize,
+      direct_qualified: directQualified,
+      auto_advanced: [],
+      ranking_candidates: [],
+      tiebreaks: tiebreakPlans,
+      rage_cage_groups: rageCageGroups,
+      playin_matches: [],
+      last_cup_shootoff: null,
       policy_notes: ['Kein Play-In nötig – alle Plätze gefüllt.']
     }
-    return
   }
 
   const allAreTrios = groupNames.every(
@@ -1160,27 +1538,14 @@ function computePlayInLocal() {
     }
   }
 
-  const norm = r => ({
-    name: String(r?.name || ''),
-    points: Number(r?.points || 0),
-    cupsDiff: Number(
-      (r?.cupsDiff ?? (r?.cupsFor || 0) - (r?.cupsAgainst || 0)) || 0
-    ),
-    cupsFor: Number(r?.cupsFor || 0)
-  })
-  const rankDesc = (a, b) => {
-    if (b.points !== a.points) return b.points - a.points
-    if (b.cupsDiff !== a.cupsDiff) return b.cupsDiff - a.cupsDiff
-    if (b.cupsFor !== a.cupsFor) return b.cupsFor - a.cupsFor
-    return a.name.localeCompare(b.name, 'de')
-  }
   const candidates = candidateRows
     .filter(Boolean)
-    .map(norm)
-    .sort(rankDesc)
+    .map(normalizeRankingCandidate)
+    .sort(compareRankingCandidates)
 
   if (candidates.length < slotsNeeded) {
-    playInResult.value = {
+    return {
+      ready_for_knockout: true,
       playin_needed: true,
       ko_size: koSize,
       direct_qualified: directQualified,
@@ -1188,32 +1553,27 @@ function computePlayInLocal() {
       tiebreaks: tiebreakPlans,
       rage_cage_groups: rageCageGroups,
       playin_matches: [],
+      last_cup_shootoff: null,
       policy_notes: [
         ...notes,
         'Zu wenige Kandidaten vorhanden – bitte manuell entscheiden (Sonderverfahren).'
       ]
     }
-    return
   }
 
   const need = slotsNeeded
   const k = need - 1
-  const eq = (x, y) =>
-    x &&
-    y &&
-    x.points === y.points &&
-    x.cupsDiff === y.cupsDiff &&
-    x.cupsFor === y.cupsFor
   const cutoffTie =
     need > 0 &&
     k >= 0 &&
     k < candidates.length - 1 &&
-    eq(candidates[k], candidates[k + 1])
+    equalRankingMetrics(candidates[k], candidates[k + 1])
 
   // Kein Gleichstand am Cut-Off → automatisch weiter
   if (!cutoffTie) {
     const auto = candidates.slice(0, need).map(x => x.name)
-    playInResult.value = {
+    return {
+      ready_for_knockout: true,
       playin_needed: false,
       ko_size: koSize,
       direct_qualified: directQualified,
@@ -1221,24 +1581,74 @@ function computePlayInLocal() {
       ranking_candidates: candidates,
       tiebreaks: tiebreakPlans,
       rage_cage_groups: rageCageGroups,
+      playin_matches: [],
+      last_cup_shootoff: null,
       policy_notes: [
         ...notes,
         `Kein Gleichstand am Cut-Off → automatisch weiter: ${auto.join(', ')}.`
       ]
     }
-    return
   }
 
   // Gleichstand am Cut-Off → Verfahren je Größe der Tie-Range
   let s = k
   let e = k + 1
-  while (s - 1 >= 0 && eq(candidates[s - 1], candidates[k])) s--
-  while (e + 1 < candidates.length && eq(candidates[e + 1], candidates[k]))
+  while (s - 1 >= 0 && equalRankingMetrics(candidates[s - 1], candidates[k])) s--
+  while (e + 1 < candidates.length && equalRankingMetrics(candidates[e + 1], candidates[k]))
     e++
   const tieRange = candidates.slice(s, e + 1)
 
   const playin_matches = []
   const rage_cutoff_groups = []
+  const shootOffPlan =
+    tieRange.length >= 3 && tieRange.length === slotsNeeded + 1
+      ? buildShootOffPlan(tieRange.map(team => team.name), {
+          group: 'Play-In Cut-Off',
+          qualifyingSlots: slotsNeeded,
+          note: `Es muss genau ein letzter Platz zwischen ${tieRange.length} Teams bestimmt werden. Daher wird ein Last Cup Shoot-Off gespielt; die besten ${slotsNeeded} Teams qualifizieren sich fuer die KO-Phase.`
+        })
+      : null
+
+  if (shootOffPlan) {
+    const stateMatches = sameShootOffTeams(playInShootOffState.value, shootOffPlan)
+    if (stateMatches && playInShootOffState.value?.done) {
+      const auto = playInShootOffState.value.finalRanking.slice(0, slotsNeeded)
+      return {
+        ready_for_knockout: true,
+        playin_needed: false,
+        ko_size: koSize,
+        direct_qualified: directQualified,
+        auto_advanced: auto,
+        ranking_candidates: candidates,
+        tiebreaks: tiebreakPlans,
+        rage_cage_groups: rageCageGroups,
+        playin_matches: [],
+        last_cup_shootoff: null,
+        policy_notes: [
+          ...notes,
+          `Last Cup Shoot-Off entschieden: ${auto.join(', ')} qualifizieren sich.`
+        ]
+      }
+    }
+
+    return {
+      ready_for_knockout: false,
+      playin_needed: true,
+      ko_size: koSize,
+      direct_qualified: directQualified,
+      auto_advanced: [],
+      ranking_candidates: candidates,
+      tie_range: tieRange,
+      tiebreaks: tiebreakPlans,
+      rage_cage_groups: rageCageGroups,
+      playin_matches: [],
+      last_cup_shootoff: shootOffPlan,
+      policy_notes: [
+        ...notes,
+        'Am Play-In-Cut-Off ist kein letzter Platz eindeutig bestimmbar. Der Last Cup Shoot-Off muss vor dem Weitergehen abgeschlossen werden.'
+      ]
+    }
+  }
 
   if (tieRange.length === 2) {
     playin_matches.push({
@@ -1277,7 +1687,8 @@ function computePlayInLocal() {
     )
   }
 
-  playInResult.value = {
+  return {
+    ready_for_knockout: true,
     playin_needed: true,
     ko_size: koSize,
     direct_qualified: directQualified,
@@ -1286,21 +1697,36 @@ function computePlayInLocal() {
     tiebreaks: tiebreakPlans,
     rage_cage_groups: [...rageCageGroups, ...rage_cutoff_groups],
     playin_matches,
+    last_cup_shootoff: null,
     policy_notes: notes
   }
 }
 
-/** Weiter */
-const canProceedKo = computed(
-  () => Object.keys(groupMatches.value).length > 0
+function computePlayInLocal() {
+  playInResult.value = buildPlayInResult()
+  return playInResult.value
+}
+
+const activePlayInShootOffPlan = computed(
+  () => playInResult.value?.last_cup_shootoff ?? buildPlayInResult().last_cup_shootoff ?? null
 )
+
+const isPlayInShootOffRoundComplete = computed(() => {
+  const state = playInShootOffState.value
+  if (!state || state.done) return false
+  return state.remaining.every(team => state.currentRound[team] !== null)
+})
+
+/** Weiter */
+const canProceedKo = computed(() => allGroupsComplete.value && (playInResult.value?.ready_for_knockout || false))
 function goNext() {
+  const playInPlan = playInResult.value
+  if (!playInPlan?.ready_for_knockout) return
   const tables = buildTablesForAllGroups()
   emit('create-ko', {
     tables,
-    playIn: playInResult.value || null,
-    cupsTarget: cupsTarget.value,
-    koSize: playInResult.value?.ko_size
+    playIn: playInPlan || null,
+    koSize: playInPlan.ko_size
   })
 }
 
@@ -1320,8 +1746,12 @@ function normalizeMatches(list) {
     cups_state_team2: Array.isArray(m.cups_state_team2) && m.cups_state_team2.length > 0 ? m.cups_state_team2 : null,
     hit_history_team1: Array.isArray(m.hit_history_team1) ? m.hit_history_team1 : [],
     hit_history_team2: Array.isArray(m.hit_history_team2) ? m.hit_history_team2 : [],
+    history_team1: Array.isArray(m.history_team1) ? m.history_team1 : [],
+    history_team2: Array.isArray(m.history_team2) ? m.history_team2 : [],
     team1_rerack_used: !!m.team1_rerack_used,
-    team2_rerack_used: !!m.team2_rerack_used
+    team2_rerack_used: !!m.team2_rerack_used,
+    is_overtime: !!m.is_overtime,
+    table_no: getTableNo(m)
   }))
 }
 
@@ -1443,13 +1873,13 @@ function computeAllTiebreaksForCompletedGroups() {
 
 function getFinalStandings(groupName) {
   let arr
-  const srv = groupStandingsSrv.value[groupName]
-  if (Array.isArray(srv) && srv.length > 0) {
-    arr = srv
+  const matches = groupMatches.value[groupName] || []
+  if (matches.length > 0) {
+    arr = computeGroupTable(matches)
   } else {
-    const matches = groupMatches.value[groupName] || []
-    if (matches.length > 0) {
-      arr = computeGroupTable(matches)
+    const srv = groupStandingsSrv.value[groupName]
+    if (Array.isArray(srv) && srv.length > 0) {
+      arr = srv
     } else {
       const meta = lastGroupsMeta.value.find(g => g.name === groupName)
       const teams = meta?.teams ?? []
@@ -1519,29 +1949,113 @@ function computeGroupTable(matches) {
     if (y.points !== x.points) return y.points - x.points
     if (y.cupsDiff !== x.cupsDiff) return y.cupsDiff - x.cupsDiff
     if (y.cupsFor !== x.cupsFor) return y.cupsFor - x.cupsFor
-    return x.name.localeCompare(y.name, 'de')
+    return 0
   })
   return arr
 }
 
-function getRowClass(idx) {
+function getRowClass(groupName, idx) {
+  if (markTiebreak(groupName, idx)) return 'table-warning'
   return idx < 2 ? 'table-success' : playInNeeded.value ? 'table-warning' : ''
 }
 
-function statusLabel(idx) {
+function statusLabel(groupName, idx) {
+  if (markTiebreak(groupName, idx)) return 'Tiebreak'
   if (idx < 2) return 'Direkt'
   return playInNeeded.value ? 'Play-In' : '—'
 }
 
-function statusBadge(idx) {
+function statusBadge(groupName, idx) {
+  if (markTiebreak(groupName, idx)) return 'bg-warning text-dark'
   if (idx < 2) return 'bg-success'
   if (playInNeeded.value) return 'bg-warning text-dark'
   return 'bg-secondary'
 }
+
+function standingStatus(groupName, idx) {
+  const hasTiebreak = markTiebreak(groupName, idx)
+  return {
+    label: statusLabel(groupName, idx),
+    badgeClass: statusBadge(groupName, idx),
+    rowClass: getRowClass(groupName, idx),
+    tagLabel: hasTiebreak ? 'TB' : '',
+    tagClass: hasTiebreak ? 'bg-warning text-dark' : '',
+    tagTitle: hasTiebreak ? 'Teil der Tiebreak-Konstellation' : '',
+  }
+}
+
 function safeNum(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
 }
+function conclusionStep(newStep) {
+  if (!pendingConclusion.value) return
+  pendingConclusion.value.step = newStep
+  if (!pendingConclusion.value.history) pendingConclusion.value.history = []
+  pendingConclusion.value.history.push(newStep)
+}
+
+function conclusionBack() {
+  if (!pendingConclusion.value || !pendingConclusion.value.history) return
+  const h = pendingConclusion.value.history
+  if (h.length <= 1) {
+    pendingConclusion.value = null
+    return
+  }
+  h.pop() // remove current
+  pendingConclusion.value.step = h[h.length - 1]
+}
+
+function finishConclusion(actuallyFinish) {
+  if (!pendingConclusion.value) return
+  const { match, groupName, matchIndex } = pendingConclusion.value
+
+  if (actuallyFinish) {
+    // Finaler Sieg
+    const a = safeNum(match.cups_team1)
+    const b = safeNum(match.cups_team2)
+    if (a !== b) match.winner = a > b ? match.team1 : match.team2
+    else match.winner = match.team1 // Fallback bei absolutem Gleichstand?
+
+    const list = [...groupMatches.value[groupName]]
+    list[matchIndex] = match
+    groupMatches.value[groupName] = list
+    syncTableAssignments(false)
+    _sendGroupMatch(groupName, match, { action_type: 'finished' })
+    scheduleAutoSave()
+  }
+
+  pendingConclusion.value = null
+}
+
+function conclusionOvertime() {
+  if (!pendingConclusion.value) return
+  const { match, groupName, matchIndex } = pendingConclusion.value
+
+  // Setze beide Teams auf 3 Becher (an der Spitze)
+  // Annahme: cupsTarget ist 6 oder 10. Die Becher 0, 1, 2 sind oft die vorderen in der Pyramide.
+  // Wir machen es einfach: Wir stellen die ersten 3 Becher wieder auf, Rest ist hit.
+  const otSize = 3
+  const newState = Array(cupsTarget.value).fill(false)
+  for (let i = 0; i < otSize; i++) newState[i] = true
+
+  match.cups_state_team1 = [...newState]
+  match.cups_state_team2 = [...newState]
+  // Wir setzen die Punkte NICHT zurück, sondern lassen sie bei 6 (bzw. 10)
+  // Damit zählen sie bis 9 (bzw. 13) hoch, was für die Tabelle korrekt ist.
+  match.winner = null
+  match.is_overtime = true
+
+  const list = [...groupMatches.value[groupName]]
+  list[matchIndex] = match
+  groupMatches.value[groupName] = list
+  syncTableAssignments(false)
+
+  _sendGroupMatch(groupName, match, { action_type: 'overtime' })
+  scheduleAutoSave()
+  pendingConclusion.value = null
+}
+
 function clampInt(v, min, max) {
   const n = parseInt(v, 10)
   const num = Number.isFinite(n) ? n : 0
@@ -1550,7 +2064,8 @@ function clampInt(v, min, max) {
 function applyWinnerRule(m) {
   const a = safeNum(m.cups_team1)
   const b = safeNum(m.cups_team2)
-  if (a >= cupsTarget.value || b >= cupsTarget.value) {
+  const target = m.is_overtime ? cupsTarget.value + 3 : cupsTarget.value
+  if (a >= target || b >= target) {
     if (a !== b) m.winner = a > b ? m.team1 : m.team2
   } else if (a === b) {
     m.winner = null
@@ -1592,7 +2107,25 @@ function detectGroupTiebreak(groupName, standings) {
 
   if (size === 4 && standings.length >= 4) {
     const [t1, t2, t3, t4] = standings
-    if (equalTripleByPointsDiff([t2, t3, t4])) {
+
+    const topThreeTied =
+      equalTripleByPointsDiff([t1, t2, t3]) &&
+      !equalRankingMetrics(t3, t4)
+
+    if (topThreeTied) {
+      return {
+        group: groupName,
+        type: 'LAST_CUP_ELIM',
+        teams: [t1.name, t2.name, t3.name],
+        fixedFirst: null
+      }
+    }
+
+    const bottomThreeTied =
+      equalTripleByPointsDiff([t2, t3, t4]) &&
+      !equalRankingMetrics(t1, t2)
+
+    if (bottomThreeTied) {
       return {
         group: groupName,
         type: 'LAST_CUP_ELIM',
@@ -1627,17 +2160,9 @@ function startLastCupElim(groupName) {
   if (!plan || plan.type !== 'LAST_CUP_ELIM') return
   lastCupElimState.value = {
     ...lastCupElimState.value,
-    [groupName]: {
-      roundCount: 1,
-      remaining: [...plan.teams],
-      currentRound: Object.fromEntries(plan.teams.map(t => [t, null])),
-      topPlaced: [],
-      bottomPlaced: [],
-      done: false,
-      finalRanking: [],
-      fixedFirst: plan.fixedFirst ?? null
-    }
+    [groupName]: createShootOffState(plan)
   }
+  computePlayInLocal()
 }
 
 function setElimResult(groupName, teamName, result) {
@@ -1658,44 +2183,10 @@ function isElimRoundComplete(groupName) {
 function evaluateElimRound(groupName) {
   const state = lastCupElimState.value[groupName]
   if (!state || state.done || !isElimRoundComplete(groupName)) return
-
-  const hitters = state.remaining.filter(t => state.currentRound[t] === 'hit')
-  const missers = state.remaining.filter(t => state.currentRound[t] === 'miss')
-
-  // Alle gleich → neue Runde, kein Ausscheiden
-  if (hitters.length === 0 || missers.length === 0) {
-    lastCupElimState.value = {
-      ...lastCupElimState.value,
-      [groupName]: {
-        ...state,
-        roundCount: state.roundCount + 1,
-        currentRound: Object.fromEntries(state.remaining.map(t => [t, null]))
-      }
-    }
-    return
-  }
-
-  let newTopPlaced = [...state.topPlaced]
-  let newBottomPlaced = [...state.bottomPlaced]
-  let newRemaining
-
-  if (hitters.length === 1) {
-    // Genau 1 Treffer → der Treffende belegt den besten noch offenen Platz
-    newTopPlaced = [...newTopPlaced, hitters[0]]
-    newRemaining = missers
-  } else {
-    // Genau 1 Fehler → der Fehlende belegt den schlechtesten noch offenen Platz
-    newBottomPlaced = [...newBottomPlaced, missers[0]]
-    newRemaining = hitters
-  }
-
-  const done = newRemaining.length <= 1
-  const finalRanking = done
-    ? [...newTopPlaced, ...newRemaining, ...newBottomPlaced.slice().reverse()]
-    : []
+  const nextState = nextShootOffState(state)
 
   // Wenn fertig: Tiebreak-Plan entfernen (detectGroupTiebreak gibt jetzt null zurück)
-  if (done) {
+  if (nextState.done) {
     const next = { ...perGroupTiebreak.value }
     delete next[groupName]
     perGroupTiebreak.value = next
@@ -1703,17 +2194,9 @@ function evaluateElimRound(groupName) {
 
   lastCupElimState.value = {
     ...lastCupElimState.value,
-    [groupName]: {
-      ...state,
-      topPlaced: newTopPlaced,
-      bottomPlaced: newBottomPlaced,
-      remaining: newRemaining,
-      roundCount: state.roundCount + 1,
-      currentRound: done ? {} : Object.fromEntries(newRemaining.map(t => [t, null])),
-      done,
-      finalRanking
-    }
+    [groupName]: nextState
   }
+  computePlayInLocal()
 }
 
 function resetElim(groupName) {
@@ -1721,6 +2204,48 @@ function resetElim(groupName) {
   delete next[groupName]
   lastCupElimState.value = next
   recomputePerGroupTiebreak(groupName)
+  computePlayInLocal()
+}
+
+function startPlayInShootOff() {
+  if (!activePlayInShootOffPlan.value) return
+  playInShootOffState.value = createShootOffState(activePlayInShootOffPlan.value)
+  computePlayInLocal()
+}
+
+function setPlayInShootOffResult(teamName, result) {
+  const state = playInShootOffState.value
+  if (!state || state.done) return
+  playInShootOffState.value = {
+    ...state,
+    currentRound: { ...state.currentRound, [teamName]: result }
+  }
+}
+
+function evaluatePlayInShootOff() {
+  const state = playInShootOffState.value
+  if (!state || state.done || !isPlayInShootOffRoundComplete.value) return
+  playInShootOffState.value = nextShootOffState(state)
+  computePlayInLocal()
+}
+
+function resetPlayInShootOff() {
+  const sourcePlan = activePlayInShootOffPlan.value || (playInShootOffState.value
+    ? buildShootOffPlan(playInShootOffState.value.sourceTeams || [], {
+        group: 'Play-In Cut-Off',
+        qualifyingSlots: playInShootOffState.value.qualifyingSlots ?? null,
+        note: 'Shoot-Off wurde zur erneuten Ausspielung zurueckgesetzt.'
+      })
+    : null)
+  playInShootOffState.value = sourcePlan ? createShootOffState(sourcePlan) : null
+  computePlayInLocal()
+}
+
+function isPlayInQualifiedIndex(idx) {
+  const plan = playInResult.value
+  if (!plan) return false
+  const slotsAvailable = Math.max(0, (plan.ko_size || 0) - (plan.direct_qualified?.length || 0))
+  return idx < slotsAvailable
 }
 
 function markTiebreak(groupName, idxInSortedTable) {
@@ -1753,6 +2278,12 @@ function formatPlayers(teamName) {
 <style scoped>
 .match-entry {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.scale-up {
+  transform: scale(1.1);
+  box-shadow: 0 0 15px rgba(25, 135, 84, 0.5);
+  transition: all 0.2s ease-in-out;
 }
 
 .cups-input {

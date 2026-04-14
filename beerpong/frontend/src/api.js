@@ -74,6 +74,7 @@ export const api = {
     loadAllData:    (id)      => get(`/tournaments/${id}/load-all-data`),
     savePlayin:     (id, d)   => post(`/tournaments/${id}/save-playin`, d),
     loadPlayin:     (id)      => get(`/tournaments/${id}/load-playin`),
+    saveKoPreview:  (id, d)   => post(`/tournaments/${id}/save-ko-preview`, d),
     saveKoBracket:  (id, d)   => post(`/tournaments/${id}/save-ko-bracket`, d),
     loadKoBracket:  (id)      => get(`/tournaments/${id}/load-ko-bracket`),
     koMatch:        (id, d)   => post(`/tournaments/${id}/ko-match`, d),

@@ -7,9 +7,11 @@ export const useTournamentStore = defineStore('tournament', () => {
   const tournament     = ref(null)
   const teams          = ref([])
   const teamPlayers    = ref({})
+  const topPlayers     = ref([])
   const groupPhase     = ref({})
   const groupStandings = ref({})
   const playin         = ref({})
+  const koPreview      = ref({})
   const koPhase        = ref({ rounds: [] })
   const tournaments    = ref([])
   const ws             = ref(null)
@@ -17,12 +19,38 @@ export const useTournamentStore = defineStore('tournament', () => {
 
   function _apply(data) {
     if (data.tournament)      tournament.value     = data.tournament
+    else if (data.id && data.name) tournament.value = data // Fallback: data IS the tournament
+
     if (data.teams)           teams.value          = data.teams
     if (data.team_players)    teamPlayers.value    = data.team_players
+    if (data.top_players)     topPlayers.value     = data.top_players
     if (data.group_phase)     groupPhase.value     = data.group_phase
     if (data.group_standings) groupStandings.value = data.group_standings
     if (data.playin)          playin.value         = data.playin
+    if (data.ko_preview)      koPreview.value      = data.ko_preview
     if (data.ko_phase)        koPhase.value        = data.ko_phase
+
+    if (data.match) {
+      const m = data.match
+      const gname = m.group_name
+      if (groupPhase.value?.matches?.[gname]) {
+        const idx = groupPhase.value.matches[gname].findIndex(x => x.id === m.id)
+        if (idx !== -1) {
+          groupPhase.value.matches[gname][idx] = { ...groupPhase.value.matches[gname][idx], ...m }
+        }
+      }
+    }
+
+    // Single KO match update (from ko_match_updated broadcast)
+    if (data.id !== undefined && !data.tournament && !data.ko_phase && !data.group_phase && data.cups_team1 !== undefined) {
+      for (const round of (koPhase.value.rounds || [])) {
+        const idx = (round.matches || []).findIndex(m => m.id === data.id)
+        if (idx !== -1) {
+          round.matches[idx] = { ...round.matches[idx], ...data }
+          break
+        }
+      }
+    }
   }
 
   async function fetchList() {
@@ -41,6 +69,7 @@ export const useTournamentStore = defineStore('tournament', () => {
     groupPhase.value = {}
     groupStandings.value = {}
     playin.value = {}
+    koPreview.value = {}
     koPhase.value = { rounds: [] }
     return result
   }
@@ -77,7 +106,7 @@ export const useTournamentStore = defineStore('tournament', () => {
   }
 
   return {
-    tournament, teams, groupPhase, groupStandings, playin, koPhase,
+    tournament, teams, teamPlayers, topPlayers, groupPhase, groupStandings, playin, koPreview, koPhase,
     tournaments, ws, wsConnected,
     fetchList, load, create, remove, connect, connectMobile,
     disconnect: _disconnect,

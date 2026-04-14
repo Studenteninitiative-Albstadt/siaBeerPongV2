@@ -23,6 +23,7 @@ class Tournament(models.Model):
     participant_count = models.IntegerField(default=8)
     cups_per_game = models.IntegerField(default=6)
     finale_with_10_cups = models.BooleanField(default=False)
+    table_count = models.IntegerField(default=2)
     status = models.CharField(max_length=20, default=STATUS_GROUP)
     mobile_access_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -95,9 +96,15 @@ class Match(models.Model):
     hit_history_team1 = models.JSONField(default=list)
     hit_history_team2 = models.JSONField(default=list)
 
+    # General history for undo (ordered list of actions: {type: 'hit', idx: 0} or {type: 'rerack', state: [...]})
+    history_team1 = models.JSONField(default=list, null=True, blank=True)
+    history_team2 = models.JSONField(default=list, null=True, blank=True)
+
     # Re-rack tracking
     team1_rerack_used = models.BooleanField(default=False)
     team2_rerack_used = models.BooleanField(default=False)
+
+    is_overtime = models.BooleanField(default=False)
 
     table = models.ForeignKey(
         Table, on_delete=models.SET_NULL, null=True, blank=True, related_name='matches'

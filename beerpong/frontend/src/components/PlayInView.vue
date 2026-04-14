@@ -246,6 +246,7 @@ import { ref, computed, watch } from 'vue'
 const props = defineProps({
   tournamentId: { type: Number, required: true },
   autoQualified: { type: Array, default: () => [] },    // pendingQualified aus App.vue
+  autoQualifiedSlots: { type: Array, default: () => [] },
   koSize: { type: Number, default: null },              // targetKoSize aus App.vue (pi.ko_size)
   candidates: { type: Array, default: () => [] },       // playInCandidates (ranking_candidates)
   matches: { type: Array, default: () => [] },          // playInMatches (playin_matches)
@@ -275,6 +276,10 @@ watch(
 
 const autoQualifiedComputed = computed(
   () => props.autoQualified?.slice() ?? []
+)
+
+const autoQualifiedSlotsComputed = computed(
+  () => props.autoQualifiedSlots?.slice() ?? []
 )
 
 const candidatesComputed = computed(
@@ -374,15 +379,27 @@ function selectWinner(matchIndex, teamKey) {
 async function confirmAndGoToKo() {
   const qualified = finalQualified.value
   const koSize = koSizeComputed.value
+  const previewSlots = localMatches.value
+    .map((match, idx) => {
+      if (!match.winner) return null
+      return {
+        id: `playin-slot-${match.id ?? idx}`,
+        sourceLabel: `Sieger Play-In ${idx + 1}`,
+        teamName: match.winner
+      }
+    })
+    .filter(Boolean)
 
   const payload = {
     // für App.vue / KO-Preview:
     koSize,
     qualified,
+    previewSlots,
 
     // für persistenten "Übertrag" aus der Tabellenlogik:
     ko_size: koSize,                                // 👈 wichtig für load-all-data
     direct_qualified: autoQualifiedComputed.value,
+    direct_qualified_slots: autoQualifiedSlotsComputed.value,
     playin_matches: localMatches.value,
     rage_cage_groups: rageCageComputed.value,
     policy_notes: policyNotesComputed.value,

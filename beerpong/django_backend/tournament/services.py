@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List
-from .models import Tournament, Team, Match, Player
+from .models import Tournament, Team, Match, Player, Tiebreak
 
 
 # ── Structure helpers (ported 1:1 from Flask) ──────────────────────────────
@@ -135,6 +135,8 @@ def generate_groups(tournament: Tournament, team_names: List[str]) -> Dict[str, 
                 team1=t1,
                 team2=t2,
                 order_index=m['order_index'],
+                history_team1=[],
+                history_team2=[],
             )
 
         group_phase['groups'][gname] = slice_names
@@ -209,7 +211,7 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
     # Group matches
     group_matches_qs = Match.objects.filter(
         tournament=tournament, phase=Match.PHASE_GROUP
-    ).select_related('team1', 'team2', 'winner').order_by('group_name', 'order_index')
+    ).select_related('team1', 'team2', 'winner', 'table').order_by('group_name', 'order_index')
 
     matches_by_group: Dict[str, list] = {}
     groups_teams: Dict[str, list] = {}
@@ -231,8 +233,12 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             'cups_state_team2': m.cups_state_team2,
             'hit_history_team1': m.hit_history_team1,
             'hit_history_team2': m.hit_history_team2,
+            'history_team1': m.history_team1,
+            'history_team2': m.history_team2,
             'team1_rerack_used': m.team1_rerack_used,
             'team2_rerack_used': m.team2_rerack_used,
+            'is_overtime': m.is_overtime,
+            'table_no': int(m.table.name.replace('Tisch ', '')) if m.table and str(m.table.name).startswith('Tisch ') else None,
         })
         for t in (m.team1.name, m.team2.name):
             if t not in groups_teams[gname]:
@@ -272,6 +278,23 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
     playin_matches = Match.objects.filter(
         tournament=tournament, phase=Match.PHASE_PLAYIN
     ).select_related('team1', 'team2', 'winner')
+    ko_preview_entry = Tiebreak.objects.filter(
+        tournament=tournament, mode='ko_preview'
+    ).order_by('-id').first()
+    ko_preview = ko_preview_entry.payload if ko_preview_entry and isinstance(ko_preview_entry.payload, dict) else {}
+
+    # Top Players (based on hits in THIS tournament)
+    from django.db.models import Count
+    top_players_qs = Player.objects.filter(
+        cup_hits__match__tournament=tournament
+    ).annotate(
+        tournament_hits=Count('cup_hits')
+    ).order_by('-tournament_hits')[:10]
+
+    top_players = [
+        {'name': p.name, 'hits': p.tournament_hits}
+        for p in top_players_qs
+    ]
 
     t = tournament
     return {
@@ -282,6 +305,7 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             'participant_count': t.participant_count,
             'cups_per_game': t.cups_per_game,
             'finale_with_10_cups': t.finale_with_10_cups,
+            'table_count': t.table_count,
             'status': t.status,
             'mobile_access_token': str(t.mobile_access_token),
             'created_at': t.created_at.isoformat(),
@@ -291,11 +315,13 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             'participantCount': t.participant_count,
             'cupsPerGame': t.cups_per_game,
             'finaleWith10Cups': t.finale_with_10_cups,
+            'tableCount': t.table_count,
             'mobileAccessToken': str(t.mobile_access_token),
             'createdAt': t.created_at.isoformat(),
         },
         'teams': teams,
         'team_players': team_players,
+        'top_players': top_players,
         'group_phase': group_phase,
         'group_standings': group_standings,
         'playin': {
@@ -311,5 +337,6 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
                 for m in playin_matches
             ]
         },
+        'ko_preview': ko_preview,
         'ko_phase': {'rounds': list(rounds_dict.values())},
     }

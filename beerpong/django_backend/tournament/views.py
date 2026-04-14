@@ -10,7 +10,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .models import Tournament, Team, Match, Player, CupHit
+from .models import Tournament, Team, Match, Player, CupHit, Table, Tiebreak
 from .permissions import IsOrga, IsOrgaOrLiveview
 from .serializers import TournamentSerializer, CustomTokenObtainPairSerializer
 from .services import compute_structure, generate_groups, compute_standings, get_full_state
@@ -57,6 +57,7 @@ class TournamentViewSet(ViewSet):
             participant_count=int(d.get('participantCount', d.get('participant_count', 8))),
             cups_per_game=int(d.get('cupsPerGame', d.get('cups_per_game', 6))),
             finale_with_10_cups=bool(d.get('finaleWith10Cups', d.get('finale_with_10_cups', False))),
+            table_count=int(d.get('tableCount', d.get('table_count', 2))),
         )
         return Response(TournamentSerializer(t).data, status=status.HTTP_201_CREATED)
 
@@ -83,10 +84,12 @@ class TournamentViewSet(ViewSet):
             if key in d: t.cups_per_game = int(d[key])
         for key in ('finaleWith10Cups', 'finale_with_10_cups'):
             if key in d: t.finale_with_10_cups = bool(d[key])
+        for key in ('tableCount', 'table_count'):
+            if key in d: t.table_count = int(d[key])
         for key in ('currentPhase', 'current_phase'):
             if key in d: t.status = str(d[key])
         t.save()
-        broadcast(t.id, 'tournament_updated', TournamentSerializer(t).data)
+        broadcast(t.id, 'tournament_updated', {'tournament': TournamentSerializer(t).data})
         return Response({'ok': True})
 
     # ── Structure ────────────────────────────────────────────────────────────
@@ -105,34 +108,49 @@ class TournamentViewSet(ViewSet):
         teams_data = request.data.get('teams', [])
         if not isinstance(teams_data, list):
             return Response({'error': 'teams must be a list'}, status=400)
-        # Remove teams not yet assigned to a group that are no longer in the list
-        new_names = [
-            (item if isinstance(item, str) else item.get('name', ''))
-            for item in teams_data
-        ]
-        Team.objects.filter(tournament=t, group_name__isnull=True).exclude(name__in=new_names).delete()
+
+        # 1. Identify valid team names from payload
+        new_names = []
         for item in teams_data:
-            if isinstance(item, str):
-                Team.objects.get_or_create(tournament=t, name=item)
-            else:
-                name = (item.get('name') or '').strip()
-                if not name:
-                    continue
-                team, _ = Team.objects.get_or_create(tournament=t, name=name)
+            name = (item if isinstance(item, str) else item.get('name', '')).strip()
+            if name:
+                new_names.append(name)
+
+        # 2. Delete teams that are NO LONGER in the tournament
+        Team.objects.filter(tournament=t).exclude(name__in=new_names).delete()
+
+        # 3. Create or Update teams and players
+        for item in teams_data:
+            name = (item if isinstance(item, str) else item.get('name', '')).strip()
+            if not name:
+                continue
+
+            team, _ = Team.objects.get_or_create(tournament=t, name=name)
+
+            # Update players if provided
+            if isinstance(item, dict):
                 p1_name = (item.get('player1') or '').strip()
                 p2_name = (item.get('player2') or '').strip()
                 changed = False
                 if p1_name:
                     p1, _ = Player.objects.get_or_create(name=p1_name)
-                    team.player1 = p1
-                    changed = True
+                    if team.player1 != p1:
+                        team.player1 = p1
+                        changed = True
                 if p2_name:
                     p2, _ = Player.objects.get_or_create(name=p2_name)
-                    team.player2 = p2
-                    changed = True
+                    if team.player2 != p2:
+                        team.player2 = p2
+                        changed = True
                 if changed:
                     team.save()
-        return Response({'ok': True, 'count': len(teams_data)})
+
+        # 4. AUTOMATICALLY GENERATE PLAN
+        # This fulfills the request to generate the plan immediately
+        generate_groups(t, new_names)
+
+        broadcast(t.id, 'group_phase_updated', get_full_state(t))
+        return Response({'ok': True, 'count': len(new_names)})
 
     @action(detail=True, methods=['get'], url_path='load-teams')
     def load_teams(self, request, pk=None):
@@ -208,10 +226,13 @@ class TournamentViewSet(ViewSet):
             return Response({'error': 'Team not found'}, status=404)
 
         # Optional: record which player scored a cup
+        event_data = body.get('event_data') or {}
+        action_type = event_data.get('action_type')
         shooter_name = (body.get('shooter') or '').strip()
         shooter_team_name = (body.get('shooter_team') or '').strip()
         match_id = result.get('id')
-        if shooter_name and shooter_team_name and match_id:
+
+        if action_type == 'cup_hit' and shooter_name and shooter_team_name and match_id:
             try:
                 player = Player.objects.get(name=shooter_name)
                 team = Team.objects.get(tournament=t, name=shooter_team_name)
@@ -221,11 +242,38 @@ class TournamentViewSet(ViewSet):
                 player.save(update_fields=['total_cups_hit'])
             except (Player.DoesNotExist, Team.DoesNotExist, Match.DoesNotExist):
                 pass
+        elif action_type == 'undo' and match_id:
+            try:
+                # team_key in event_data identifies whose action is undone
+                # but we need to know WHICH player hit the cup we're undoing.
+                # We find the last CupHit for this match and the team that hit (the shooter team).
+                # team_key in event_data is the team whose cup is RESTORED (the hit was against them).
+                # So the shooter was the OTHER team.
+                restored_team_key = event_data.get('team_key') # 'team1' or 'team2'
+                shooter_team_key = 'team2' if restored_team_key == 'team1' else 'team1'
+
+                # Get the actual Team object for the shooter
+                match = Match.objects.get(id=match_id)
+                shooter_team = match.team1 if shooter_team_key == 'team1' else match.team2
+
+                last_hit = CupHit.objects.filter(match=match, team=shooter_team).order_by('-id').first()
+                if last_hit:
+                    player = last_hit.player
+                    player.total_cups_hit = max(0, player.total_cups_hit - 1)
+                    player.save(update_fields=['total_cups_hit'])
+                    last_hit.delete()
+            except Exception:
+                pass
 
         standings = compute_standings(t)
-        broadcast(t.id, 'match_updated', {'match': result, 'standings': standings})
+        full_state = get_full_state(t)
+        broadcast(t.id, 'match_updated', {
+            'match': result,
+            'group_standings': standings,
+            'top_players': full_state['top_players'],
+            'tournament': full_state['tournament']
+        })
         return Response(result)
-
     @action(detail=True, methods=['get'], url_path='group-standings')
     def group_standings(self, request, pk=None):
         t = self._get_or_404(pk)
@@ -243,16 +291,53 @@ class TournamentViewSet(ViewSet):
         t = self._get_or_404(pk)
         payload = request.data
         Match.objects.filter(tournament=t, phase=Match.PHASE_PLAYIN).delete()
+        Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
 
         for m in (payload.get('playin_matches') or payload.get('matches') or []):
             t1 = Team.objects.filter(tournament=t, name=m.get('team1')).first()
             t2 = Team.objects.filter(tournament=t, name=m.get('team2')).first()
             if t1 and t2:
-                Match.objects.create(tournament=t, phase=Match.PHASE_PLAYIN, team1=t1, team2=t2)
+                Match.objects.create(
+                    tournament=t, phase=Match.PHASE_PLAYIN, team1=t1, team2=t2,
+                    history_team1=[], history_team2=[]
+                )
 
         t.status = Tournament.STATUS_PLAYIN
         t.save()
         broadcast(t.id, 'phase_changed', get_full_state(t))
+        return Response({'ok': True})
+
+    @action(detail=True, methods=['post'], url_path='save-ko-preview')
+    def save_ko_preview(self, request, pk=None):
+        t = self._get_or_404(pk)
+        payload = request.data if isinstance(request.data, dict) else {}
+        slots = payload.get('slots') or []
+        ko_size = payload.get('ko_size', payload.get('koSize'))
+        teams = payload.get('teams') or []
+        source = payload.get('source') or 'groups'
+        phase = payload.get('phase')
+
+        Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
+
+        if slots:
+            Tiebreak.objects.create(
+                tournament=t,
+                group_name='__ko_preview__',
+                mode='ko_preview',
+                payload={
+                    'slots': slots,
+                    'ko_size': ko_size,
+                    'teams': teams,
+                    'source': source,
+                },
+                resolved=False,
+            )
+
+        if phase is not None:
+            t.status = str(phase)
+            t.save(update_fields=['status'])
+
+        broadcast(t.id, 'ko_preview_updated', get_full_state(t))
         return Response({'ok': True})
 
     @action(detail=True, methods=['get'], url_path='load-playin')
@@ -277,6 +362,7 @@ class TournamentViewSet(ViewSet):
         t = self._get_or_404(pk)
         rounds = request.data.get('rounds') or []
         Match.objects.filter(tournament=t, phase=Match.PHASE_KO).delete()
+        Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
 
         for round_data in rounds:
             round_name = str(round_data.get('round_name') or 'Round')
@@ -294,6 +380,7 @@ class TournamentViewSet(ViewSet):
                     cups_team2=int(m.get('cups_team2') or 0),
                     ko_round=round_name, ko_bracket_type=bracket_type, ko_match_index=idx,
                     status='done' if winner else 'pending',
+                    history_team1=[], history_team2=[]
                 )
 
         t.status = Tournament.STATUS_KO
@@ -394,8 +481,20 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
     cups_state2 = body.get('cups_state_team2')
     hit_history1 = body.get('hit_history_team1')
     hit_history2 = body.get('hit_history_team2')
+    history1 = body.get('history_team1')
+    history2 = body.get('history_team2')
     rerack1 = bool(body.get('team1_rerack_used', False))
     rerack2 = bool(body.get('team2_rerack_used', False))
+    is_overtime = bool(body.get('is_overtime', False))
+    table_no_provided = any(
+        key in body
+        for key in ('table_no', 'tableNo', 'table_number', 'tableNumber')
+    )
+    raw_table_no = body.get('table_no', body.get('tableNo', body.get('table_number', body.get('tableNumber'))))
+    try:
+        table_no = int(raw_table_no) if raw_table_no is not None else None
+    except (ValueError, TypeError):
+        table_no = None
 
     try:
         t1 = Team.objects.get(tournament=tournament, name=t1_name)
@@ -404,7 +503,6 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
         return None
 
     winner = Team.objects.filter(tournament=tournament, name=winner_name).first() if winner_name else None
-
     match = None
     if match_id:
         try:
@@ -417,6 +515,16 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
             tournament=tournament, phase=Match.PHASE_GROUP,
             group_name=gname, team1=t1, team2=t2,
         ).first()
+
+    table = None
+    if table_no and table_no > 0:
+        table, _ = Table.objects.get_or_create(
+            tournament=tournament,
+            name=f'Tisch {table_no}',
+            defaults={'is_active': True},
+        )
+    elif match and not winner and not table_no_provided:
+        table = match.table
 
     if match:
         match.cups_team1 = cups1
@@ -431,8 +539,15 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
             match.hit_history_team1 = hit_history1
         if isinstance(hit_history2, list):
             match.hit_history_team2 = hit_history2
+
+        # New history fields
+        match.history_team1 = history1 if isinstance(history1, list) else (match.history_team1 or [])
+        match.history_team2 = history2 if isinstance(history2, list) else (match.history_team2 or [])
+
         match.team1_rerack_used = rerack1
         match.team2_rerack_used = rerack2
+        match.is_overtime = is_overtime
+        match.table = None if winner else table
         match.save()
     else:
         match = Match.objects.create(
@@ -443,8 +558,12 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
             cups_state_team2=cups_state2 if isinstance(cups_state2, list) else [],
             hit_history_team1=hit_history1 if isinstance(hit_history1, list) else [],
             hit_history_team2=hit_history2 if isinstance(hit_history2, list) else [],
+            history_team1=history1 if isinstance(history1, list) else [],
+            history_team2=history2 if isinstance(history2, list) else [],
             team1_rerack_used=rerack1,
             team2_rerack_used=rerack2,
+            is_overtime=is_overtime,
+            table=None if winner else table,
             status='done' if winner else 'pending',
         )
 
@@ -456,8 +575,12 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
         'cups_state_team2': match.cups_state_team2,
         'hit_history_team1': match.hit_history_team1,
         'hit_history_team2': match.hit_history_team2,
+        'history_team1': match.history_team1,
+        'history_team2': match.history_team2,
         'team1_rerack_used': match.team1_rerack_used,
         'team2_rerack_used': match.team2_rerack_used,
+        'is_overtime': match.is_overtime,
+        'table_no': int(match.table.name.replace('Tisch ', '')) if match.table and str(match.table.name).startswith('Tisch ') else None,
     }
 
 

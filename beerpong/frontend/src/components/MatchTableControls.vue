@@ -13,9 +13,18 @@
               v-for="cup in row" 
               :key="'t1-cup-'+cup.idx"
               class="cup"
-              :class="{ 'cup-standing': cup.val, 'cup-hit': !cup.val, 'cup-rerack-mode': rerackMode === 'team1' }"
+              :class="{ 
+                'cup-standing': cup.val, 
+                'cup-hit': !cup.val, 
+                'cup-rerack-mode': rerackMode === 'team1',
+                'cup-dragging': draggingCup && draggingCup.idx === cup.idx && draggingCup.team === 'team1'
+              }"
+              :draggable="rerackMode === 'team1' && cup.val"
               @click="handleCupHit('team1', cup.idx)"
-              :title="rerackMode === 'team1' ? 'Becher umschalten' : 'Becher treffen'"
+              @dragstart="onDragStart($event, 'team1', cup.idx)"
+              @dragover.prevent
+              @drop="onDrop($event, 'team1', cup.idx)"
+              :title="rerackMode === 'team1' ? 'Becher ziehen zum Positionieren' : 'Becher treffen'"
             ></div>
           </div>
         </div>
@@ -50,9 +59,18 @@
               v-for="cup in row" 
               :key="'t2-cup-'+cup.idx"
               class="cup"
-              :class="{ 'cup-standing': cup.val, 'cup-hit': !cup.val, 'cup-rerack-mode': rerackMode === 'team2' }"
+              :class="{ 
+                'cup-standing': cup.val, 
+                'cup-hit': !cup.val, 
+                'cup-rerack-mode': rerackMode === 'team2',
+                'cup-dragging': draggingCup && draggingCup.idx === cup.idx && draggingCup.team === 'team2'
+              }"
+              :draggable="rerackMode === 'team2' && cup.val"
               @click="handleCupHit('team2', cup.idx)"
-              :title="rerackMode === 'team2' ? 'Becher umschalten' : 'Becher treffen'"
+              @dragstart="onDragStart($event, 'team2', cup.idx)"
+              @dragover.prevent
+              @drop="onDrop($event, 'team2', cup.idx)"
+              :title="rerackMode === 'team2' ? 'Becher ziehen zum Positionieren' : 'Becher treffen'"
             ></div>
           </div>
         </div>
@@ -92,6 +110,7 @@ const props = defineProps({
 
 const emit = defineEmits(['cup-hit', 'undo', 'rerack'])
 
+const draggingCup = ref(null)
 const rerackMode = ref(null) // 'team1', 'team2' oder null
 const localCups = ref([])
 
@@ -101,10 +120,31 @@ function startRerack(teamKey) {
 }
 function cancelRerack() {
   rerackMode.value = null
+  draggingCup.value = null
 }
 function saveRerack() {
   emit('rerack', { matchId: props.matchId, teamKey: rerackMode.value, newState: [...localCups.value] })
   rerackMode.value = null
+  draggingCup.value = null
+}
+
+function onDragStart(event, team, idx) {
+  if (rerackMode.value !== team) return
+  draggingCup.value = { team, idx }
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function onDrop(event, team, targetIdx) {
+  if (!draggingCup.value || draggingCup.value.team !== team) return
+  const sourceIdx = draggingCup.value.idx
+  if (sourceIdx === targetIdx) return
+  
+  // Swap the cup states (standing vs hit)
+  const temp = localCups.value[sourceIdx]
+  localCups.value[sourceIdx] = localCups.value[targetIdx]
+  localCups.value[targetIdx] = temp
+  
+  draggingCup.value = null
 }
 
 function buildPyramid(cupsArray, is10Cups) {
@@ -194,6 +234,11 @@ function undo(teamKey) {
 .cup-rerack-mode.cup-hit {
   border-style: dashed;
   opacity: 0.4;
+}
+.cup-dragging {
+  opacity: 0.5 !important;
+  border-style: dotted !important;
+  transform: scale(1.1) rotate(5deg);
 }
 .table-net {
   height: 150px;

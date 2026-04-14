@@ -550,6 +550,11 @@ def api_save_group_match(t_id: int):
     cups_state_team2 = body.get("cups_state_team2")
     team1_rerack_used = bool(body.get("team1_rerack_used") or False)
     team2_rerack_used = bool(body.get("team2_rerack_used") or False)
+    raw_table_no = body.get("table_no", body.get("tableNo", body.get("table_number", body.get("tableNumber"))))
+    try:
+        table_no = int(raw_table_no) if raw_table_no is not None else None
+    except (TypeError, ValueError):
+        table_no = None
     
     event_data = body.get("event_data")
 
@@ -589,10 +594,19 @@ def api_save_group_match(t_id: int):
             cups_state_team1 = existing.get("cups_state_team1")
         if cups_state_team2 is None:
             cups_state_team2 = existing.get("cups_state_team2")
+        if table_no is None:
+            existing_table_no = existing.get("table_no", existing.get("tableNo", existing.get("table_number", existing.get("tableNumber"))))
+            try:
+                table_no = int(existing_table_no) if existing_table_no is not None else None
+            except (TypeError, ValueError):
+                table_no = None
         if (body.get("team1_rerack_used") is None) and existing.get("team1_rerack_used"):
             team1_rerack_used = existing.get("team1_rerack_used")
         if (body.get("team2_rerack_used") is None) and existing.get("team2_rerack_used"):
             team2_rerack_used = existing.get("team2_rerack_used")
+
+    if winner:
+        table_no = None
 
     norm = {
         "id": mid or f"{gname}-{order_index+1}",
@@ -604,6 +618,7 @@ def api_save_group_match(t_id: int):
         "cups_state_team2": cups_state_team2,
         "team1_rerack_used": team1_rerack_used,
         "team2_rerack_used": team2_rerack_used,
+        "table_no": table_no,
         "order_index": order_index
     }
 

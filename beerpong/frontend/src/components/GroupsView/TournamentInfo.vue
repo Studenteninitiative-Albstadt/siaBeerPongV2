@@ -26,14 +26,7 @@
         </div>
 
         <div class="col-md-auto">
-          <button
-            class="btn btn-outline-light me-2"
-            @click="$emit('generate')"
-            :disabled="!canGenerate"
-            :title="!canGenerate ? 'Mindestens 2 Teams erforderlich' : 'Gruppen aus Teamliste erzeugen'"
-          >
-            Gruppen automatisch erzeugen
-          </button>
+          <!-- Button entfernt, da automatisch -->
         </div>
       </div>
 

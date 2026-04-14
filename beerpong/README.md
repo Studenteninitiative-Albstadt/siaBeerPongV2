@@ -1,382 +1,485 @@
-# 🍺 SIA BeerPong Tournament Manager
+# SIA BeerPong Tournament Manager
 
-UI-first Demo für Beer-Pong-Turniere. Der aktuelle Stand ist **single‑client** und speichert alles im Browser; der Backend-Server liefert nur den Turnierplan. Mehrbenutzer‑Sync, echte Persistenz und Play‑In/KO‑Automatik sind noch nicht angebunden.
+Aktueller Stand des Projekts im Verzeichnis `beerpong/`: ein produktiv nutzbarer Beer-Pong-Turniermanager mit Vue-Frontend, Django-Backend, JWT-Login, WebSockets, persistenter Speicherung und separaten Ansichten fuer Orga, Beamer/LiveView und Mobile.
 
----
-
-## 📋 Projektübersicht
-
-- **Zweck (aktuell):** Schnelles Ausprobieren des Frontends (Wizard, Gruppenphase, rudimentäres KO-Bracket) für lokale Demozwecke.
-- **Status:** Aktive Entwicklung, viele Features noch nicht verkabelt (siehe „Bekannte Lücken“).
+Die Anwendung ist funktional, aber nicht in allen Bereichen konsequent "backend-first". Teile der Turnierlogik liegen bereits sauber im Django-Backend, andere Teile werden aktuell noch im Frontend berechnet und anschliessend in die API geschrieben. Diese README beschreibt genau diesen IST-Zustand.
 
 ---
 
-## 🏗️ Architektur & Tech-Stack
+## Projektstatus
+
+- Architekturstand: Vue 3 + Vite + Pinia im Frontend, Django + DRF + Channels + Redis im Backend.
+- Login und Rollenmodell sind aktiv: `orga` und `liveview`.
+- Turniere, Teams, Gruppenspiele, Play-In-Matches und KO-Matches werden persistent gespeichert.
+- Gruppen-Matchupdates werden in Echtzeit per WebSocket an verbundene Clients verteilt.
+- Mobile-Zugriff funktioniert ueber einen oeffentlichen Turnier-Token.
+- Das alte Flask-Backend liegt noch im Repo, ist aber nicht Teil des aktiven Docker-Stacks.
+
+### Kurzfazit
+
+Was heute bereits gut funktioniert:
+
+- Turnier anlegen, laden, loeschen
+- Teams und Spielernamen erfassen
+- Gruppenphase live spielen, inklusive Cup-Tracking, Undo und Re-Rack
+- Live-Standings und Multitab-Synchronisation
+- Play-In-Matches festlegen und Sieger auswaehlen
+- KO-Phase spielen und persistent fortschreiben
+- LiveView mit QR-Code fuer Mobile-Ansicht
+
+Was aktuell noch nicht sauber bis zum Ende ausmodelliert ist:
+
+- Gruppenerzeugung und Play-In-Ermittlung sind primaer frontendgetrieben
+- `tableCount` aus dem Wizard wird im Django-Backend noch nicht gespeichert
+- Mobile-"Top-Spieler" basiert aktuell auf Teamwerten, nicht auf echten Spielerstatistiken
+- Play-In-Zusatzdaten wie `ko_size`, Ranking-Kandidaten oder Policy-Notes werden beim Reload nicht vollstaendig rekonstruiert
+- Es gibt keine automatisierten Tests
+
+---
+
+## Architektur
 
 ### Frontend
-- **Framework:** Vue 3 (Composition API)
-- **Build-Tool:** Vite
-- **Styling:** Bootstrap 5
-- **Socket.IO Client:** vorhanden, aber nur Lauschen; keine tatsächliche Mehrbenutzer-Sync.
-- **Node-Version:** 20 (Alpine)
 
-### Backend (läuft, wird aber kaum genutzt)
-- **Framework:** Flask (Python 3.12)
-- **DB:** SQLite (`tournament.db`)
-- **Echtzeit:** Flask-SocketIO + Eventlet
-- **CORS:** offen (`*`)
-- **ORM:** Flask-SQLAlchemy
-- **Derzeitige Nutzung:** einzig der Endpoint `/compute-tournament-plan` wird vom Frontend aufgerufen.
+- Vue `3.5`
+- Vite `7`
+- Pinia fuer Auth- und Turnier-State
+- Vue Router mit Hash-Routing
+- Bootstrap `5`
+- QR-Code-Generierung fuer den mobilen Zugang
 
-### DevOps
-- **Containerisierung:** Docker + Docker Compose
-- **Frontend-Port:** 5173 (Vite Dev Server)
-- **Backend-Port:** 5000 (Flask + SocketIO)
-- **Volume Mounts:** Live-Code-Änderungen ohne Rebuild
+Zentrale Ansichten:
 
----
+- `LoginView`: JWT-Login
+- `AdminView`: Turnierverwaltung, Wizard, Gruppenphase, Play-In, KO
+- `LiveView`: Beamer-/Live-Ansicht mit Live-Tischen, Gruppenrotation und QR-Code
+- `MobileView`: oeffentliche Mobile-Ansicht per Token
 
-## 🏁 Bekannte Lücken (Stand jetzt)
+### Backend
 
-- Keine Persistenz: Teams, Spiele, Ergebnisse und Tiebreaks leben nur im Browser-State.
-- Kein Mehrbenutzerbetrieb: Keine Speicherung via REST, keine Socket-Broadcasts; zweite Clients sehen keine Änderungen.
-- Play‑In nicht funktionsfähig: UI-Props passen nicht zum Backend-API, es erfolgt kein Request an `/compute-playin-from-tables`.
-- Gruppen/Matches nicht aus Backend: Gruppen werden clientseitig deterministisch verteilt; Round-Robin wird lokal erzeugt.
-- KO-Bracket nur für 4 oder 8 Teams, Seeding rein alphabetisch; keine Live-Updates oder Speicherung.
-- Tiebreak-Logik nur im Client; Head‑to‑Head und Backend‑Tiebreak-Modelle werden nicht genutzt.
+- Django `5.x`
+- Django REST Framework
+- `rest_framework_simplejwt` fuer JWT
+- Django Channels + Redis fuer WebSockets
+- SQLite als aktuelle Datenbank
+- Custom User-Modell mit Rollenflags `is_orga` und `is_liveview`
 
----
+Wichtige Eigenschaften:
 
-## 📊 Datenmodelle
+- REST fuer CRUD und Turniermutationen
+- WebSocket-Channel pro Turnier unter `/ws/tournament/{id}/`
+- Vollstaendige Snapshot-Auslieferung ueber `load-all-data`
+- Trefferhistorie pro Match ueber `CupHit`
 
-### Tournament
-```
-id (PK)
-mode: String (default: "groups")
-participant_count: Integer (default: 8)
-cups_per_game: Integer (default: 6)
-created_at: DateTime
-```
-*Speichert globale Turnier-Konfiguration*
+### Infrastruktur
 
-### Team
-```
-id (PK)
-name: String
-group_name: String (nullable)
-```
-*Repräsentiert ein Team/Spielerpaar*
-
-### GroupMatch
-```
-id (PK)
-group_name: String
-team1: String
-team2: String
-winner: String (nullable)
-cups_team1: Integer (nullable)
-cups_team2: Integer (nullable)
-order_index: Integer
-```
-*Einzelne Gruppenspiele mit Live-Scores*
-
-### Tiebreak
-```
-id (PK)
-group_name: String
-mode: String (z.B. "cups", "rage")
-payload: Text (JSON)
-resolved: Boolean
-```
-*Handelt Tiebreak-Szenarien in Gruppen*
+- Docker Compose startet `frontend`, `backend` und `redis`
+- Vite proxyt lokal auf das Django-Backend
+- Daphne startet das ASGI-Backend im Container
 
 ---
 
-## 🎮 Funktionalitäten
+## Rollen und Zugriff
 
-### Phase 1: Turnier-Konfiguration (Wizard)
-- ✅ Teams eingeben (2–128, lokal)
-- ✅ Cups pro Spiel setzen (6/10/custom)
-- 🚧 Modus-Auswahl: UI aktuell nur „groups“; andere Modi fehlen.
-- ✅ Turnierplan wird vom Backend berechnet (`/compute-tournament-plan`).
+### Orga
 
-### Phase 2: Gruppenphase
-- ⚠️ Gruppeneinteilung rein clientseitig (deterministische Verteilung, kein Shuffle, kein Backend).
-- ✅ Round-Robin pro Gruppe wird lokal erzeugt; Ergebnisse werden nur im Browser gehalten.
-- 🚫 Kein Speichern/Broadcast: Neue Tabs/Clients sehen keine Änderungen.
-- ✅ Tiebreak-UI (Mini-Runde, Rage-Cage, Rage-4) läuft clientseitig; kein Backend-/H2H-Abgleich.
+- Vollzugriff auf Turniere und alle Mutationen
+- Zugriff auf Wizard, Gruppenphase, Play-In und KO
 
-### Phase 3: Play-In
-- 🚫 Derzeit nicht verkabelt: UI erwartet andere Props als das Backend liefert; kein Request an `/compute-playin-from-tables`.
+### LiveView
 
-### Phase 4: K.O.-Phase
-- ⚠️ Bracket nur für 4 oder 8 Teams, Seeding alphabetisch.
-- 🚫 Keine Speicherung oder Echtzeit-Updates; reine Client-State-Demo.
+- Zugriff auf Turnierliste, LiveView und Live-Daten
+- Keine Orga-Mutationen ueber die normale UI
+
+### Mobile
+
+- Kein Login
+- Zugriff ausschliesslich ueber `mobile_access_token`
+- Endpoint: `GET /tournaments/{id}/mobile-state?token=...`
+- WebSocket-Verbindung ueber `?mobile_token=...`
+
+### Standard-Logins im Docker-Setup
+
+Die Default-User werden beim Containerstart automatisch angelegt:
+
+- `admin / admin` mit Orga-Rechten
+- `live / live` mit LiveView-Rechten
 
 ---
 
-## 🚀 Installation & Ausführung
+## Datenmodell
 
-### Mit Docker (Empfohlen)
+### `Tournament`
+
+Speichert u. a.:
+
+- Name
+- Modus
+- Teilnehmerzahl
+- Becher pro Spiel
+- `finale_with_10_cups`
+- Status: `group`, `playin`, `ko`, `finished`
+- `mobile_access_token`
+
+Wichtig: Ein Feld fuer `table_count` existiert im Django-Modell aktuell nicht mehr, obwohl das Frontend diese Einstellung weiterhin anbietet.
+
+### `Player`
+
+- Spielername
+- `total_cups_hit`
+
+### `Team`
+
+- Gehoert zu einem Turnier
+- Name
+- Referenzen auf `player1` und `player2`
+- `group_name`
+
+### `Match`
+
+Deckt drei Phasen ab:
+
+- `group`
+- `playin`
+- `ko`
+
+Zusaetzlich vorhanden:
+
+- `cups_team1`, `cups_team2`
+- `winner`
+- `cups_state_team1`, `cups_state_team2`
+- `hit_history_team1`, `hit_history_team2`
+- Re-Rack-Flags
+- KO-Metadaten wie Runde, Bracket-Typ und Match-Index
+
+### `CupHit`
+
+- Verknuepfung von Match, Team und Spieler
+- Eintrag pro registriertem Treffer
+- Grundlage fuer spaetere echte Spielerstatistiken
+
+---
+
+## Tatsaechlicher Feature-Stand
+
+### 1. Turnierverwaltung
+
+Ist implementiert:
+
+- Turnier anlegen
+- Turnierliste laden
+- Turnier loeschen
+- Turnier via `load-all-data` wiederherstellen
+
+Aktuelle Einschraenkungen:
+
+- Der Wizard fragt `tableCount` ab, das Django-Backend speichert diesen Wert aber derzeit nicht.
+- `mode` wird zwar mitgefuehrt, die aktive Produktlogik ist faktisch auf Gruppenphase -> Play-In -> KO ausgelegt.
+
+### 2. Team- und Spielererfassung
+
+Ist implementiert:
+
+- Teams werden ueber `save-teams` gespeichert
+- Zu jedem Team koennen zwei Spieler hinterlegt werden
+- Teamdaten werden beim Reload wieder geladen
+
+Aktuelle Einschraenkungen:
+
+- `Player` ist global und nicht turnierlokal eindeutig. Gleich benannte Spieler in mehreren Turnieren teilen sich aktuell denselben Datensatz.
+
+### 3. Gruppenphase
+
+Ist implementiert:
+
+- Round-Robin-Matches pro Gruppe
+- Live-Tischmodus mit Cup-Zustand statt nur Punktzahl
+- Undo der letzten Treffer
+- einmaliger Re-Rack pro Seite
+- Schuetzenwahl pro Treffer, wenn Spielernamen vorhanden sind
+- Persistente Matchupdates ueber `/group-match`
+- Backend-berechnete Standings
+- WebSocket-Broadcast bei Aenderungen
+
+Wichtige Realitaet im aktuellen Flow:
+
+- Die sichtbare Gruppenerzeugung passiert im Admin-Flow derzeit primaer im Frontend.
+- Das Backend hat zwar `compute-plan` und `generate-groups`, die normale Admin-Oberflaeche erzeugt die Gruppen aber lokal und schreibt sie dann ueber `save-group-phase` zurueck.
+
+Tiebreaks:
+
+- Standard-Sortierung: Punkte -> Becherdifferenz -> Becher+ -> Name
+- UI fuer Last-Cup-Shoot-Off / Rage-Cage-Sonderfaelle ist vorhanden
+- Diese Tiebreak-Sonderlogik ist aktuell frontendseitig orchestriert
+
+### 4. Play-In
+
+Ist implementiert:
+
+- Ermittlung eines KO-Ziels
+- Ranking der Kandidaten aus Gruppenplatzierungen
+- Play-In-Matches fuer exakte Gleichstaende am Cut-Off
+- Rage-Cage-Hinweise fuer 3er-Gleichstaende
+- Persistenz der erzeugten Play-In-Matches
+
+Wichtige Einschraenkungen:
+
+- Die Play-In-Berechnung findet aktuell im Frontend statt, nicht als kanonische Django-Service-Logik.
+- Das Backend speichert beim Schritt `save-playin` nur die eigentlichen Play-In-Matches und setzt den Turnierstatus.
+- Zusatzinformationen wie `ko_size`, `direct_qualified`, `ranking_candidates`, `rage_cage_groups` oder `policy_notes` werden beim spaeteren Reload nicht vollstaendig aus dem Backend rekonstruiert.
+
+### 5. KO-Phase
+
+Ist implementiert:
+
+- KO-Vorschau
+- automatisches Bracket-Seeding im Frontend
+- Persistenz kompletter KO-Runden ueber `save-ko-bracket`
+- Einzelupdates pro KO-Match ueber `ko-match`
+- automatische Fortschreibung von Siegern ins naechste Match
+- Spiel um Platz 3
+- optional 10 Becher fuer Finale und Platz-3-Spiel
+- Siegerbanner und Konfetti
+
+Wichtige Realitaet:
+
+- Die KO-Logik ist aktuell gemischt: Bracket-Aufbau und Propagation liegen im Frontend, Persistenz und Reload im Backend.
+- Das Backend speichert KO-Runden sauber, berechnet aber die Bracket-Struktur nicht selbst.
+
+### 6. LiveView
+
+Ist implementiert:
+
+- Auswahl eines aktiven Turniers
+- WebSocket-Statusanzeige
+- grosse Live-Darstellung aktiver Tische
+- rotierende Gruppen-Tabellen
+- QR-Code fuer die Mobile-Ansicht
+- Anzeige der KO-Runden
+
+Technische Besonderheit:
+
+- Die LiveView nutzt sowohl Store/WebSocket-Daten als auch ein zusaetzliches Polling auf `load-all-data`, um die aktiven Tischdaten robust aktuell zu halten.
+
+### 7. MobileView
+
+Ist implementiert:
+
+- tokenbasierter Aufruf per QR-Code
+- Gruppenstaende
+- KO-Uebersicht
+- naechste Spiele
+
+Aktuelle Einschraenkung:
+
+- Der Tab "Top-Spieler" zeigt derzeit keine echten Einzelspieler-Rankings, sondern nutzt Teamwerte als Platzhalter, obwohl das Backend `CupHit` und `total_cups_hit` bereits erfasst.
+
+---
+
+## API und Echtzeit
+
+### Auth
+
+- `POST /auth/token`
+- `POST /auth/token/refresh`
+
+### Turniere
+
+- `GET /tournaments`
+- `POST /tournaments`
+- `GET /tournaments/{id}`
+- `DELETE /tournaments/{id}`
+- `POST /tournaments/{id}/update`
+- `GET /tournaments/{id}/load-all-data`
+
+### Teams und Gruppenphase
+
+- `POST /tournaments/{id}/compute-plan`
+- `POST /tournaments/{id}/save-teams`
+- `GET /tournaments/{id}/load-teams`
+- `POST /tournaments/{id}/generate-groups`
+- `POST /tournaments/{id}/save-group-phase`
+- `POST /tournaments/{id}/group-match`
+- `GET /tournaments/{id}/group-standings`
+
+### Play-In und KO
+
+- `POST /tournaments/{id}/save-playin`
+- `GET /tournaments/{id}/load-playin`
+- `POST /tournaments/{id}/save-ko-bracket`
+- `GET /tournaments/{id}/load-ko-bracket`
+- `POST /tournaments/{id}/ko-match`
+
+### Oeffentlich / Health
+
+- `GET /tournaments/{id}/mobile-state?token=...`
+- `GET /health`
+
+### WebSocket
+
+- Route: `/ws/tournament/{id}/`
+- Auth-Varianten:
+  - `?token=<jwt>`
+  - `?mobile_token=<uuid>`
+
+Broadcast-Events kommen als `state.update` und transportieren je nach Mutation z. B.:
+
+- `tournament_updated`
+- `group_phase_updated`
+- `match_updated`
+- `phase_changed`
+- `ko_updated`
+- `ko_match_updated`
+
+---
+
+## Projektstruktur
+
+```text
+beerpong/
+|-- docker-compose.yml
+|-- README.md
+|-- backend/                   # Altes Flask-Backend, aktuell nicht im Compose-Stack aktiv
+|-- django_backend/
+|   |-- config/                # Django-Settings, URLConf, ASGI
+|   |-- tournament/            # Models, Views, Services, Consumer, Auth, Permissions
+|   |-- manage.py
+|   |-- entrypoint.sh
+|   `-- Dockerfile
+`-- frontend/
+    |-- public/
+    |-- src/
+    |   |-- components/
+    |   |   |-- GroupsView/
+    |   |   |-- KnockoutView.vue
+    |   |   |-- PlayInView.vue
+    |   |   |-- TournamentWizard.vue
+    |   |   `-- MatchTableControls.vue
+    |   |-- stores/
+    |   |-- views/
+    |   |-- router/
+    |   |-- api.js
+    |   |-- fetch.js
+    |   `-- main.js
+    |-- vite.config.js
+    `-- Dockerfile
+```
+
+---
+
+## Lokale Entwicklung
+
+### Empfohlen: Docker Compose
 
 ```bash
-cd /path/to/beerpong
+cd beerpong
 docker-compose up --build
 ```
 
-- **Frontend:** http://localhost:5173
-- **Backend:** http://localhost:5000
+Verfuegbare URLs:
 
-### Lokal (Entwicklung ohne Docker)
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+- Django Admin: `http://localhost:8000/django-admin/`
+- Healthcheck: `http://localhost:8000/health`
 
-**Backend:**
+Hinweis: Die bisherige README nannte `/admin`; der aktuelle Django-Pfad ist `/django-admin/`.
+
+### Optional: lokal ohne Docker
+
+Backend:
+
 ```bash
-cd backend
+cd beerpong/django_backend
 python3 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-python app.py
+python manage.py migrate
+python manage.py shell
 ```
-Backend läuft auf `http://localhost:5000` (wird momentan nur für `/compute-tournament-plan` benötigt).
 
-**Frontend:**
+Anschliessend ASGI-Server starten:
+
 ```bash
-cd frontend
+daphne -b 0.0.0.0 -p 8000 config.asgi:application
+```
+
+Frontend:
+
+```bash
+cd beerpong/frontend
 npm install
 npm run dev
 ```
-Frontend läuft auf `http://localhost:5173`
 
----
-
-## 📁 Projektstruktur
-
-```
-beerpong/
-├── docker-compose.yml          # Service-Orchestrierung
-├── README.md                   # Diese Datei
-│
-├── backend/
-│   ├── app.py                  # Haupt-App (Models, Routes, SocketIO)
-│   ├── requirements.txt        # Python Dependencies
-│   ├── Dockerfile              # Python 3.12-slim Image
-│   └── tournament.db           # SQLite Datenbank (erstellt beim Start)
-│
-└── frontend/
-    ├── index.html              # Entry Point
-    ├── package.json            # Node Dependencies & Scripts
-    ├── vite.config.js          # Vite Konfiguration
-    ├── Dockerfile              # Node 20-Alpine Image
-    ├── public/                 # Statische Assets
-    └── src/
-        ├── main.js             # Socket.IO Setup + App Mount
-        ├── App.vue             # Main Component (Workflow)
-        ├── style.css           # Global CSS
-        ├── assets/             # Images, Fonts etc.
-        └── components/
-            ├── HeaderBar.vue              # Header mit Title
-            ├── TournamentWizard.vue       # Setup-Wizard (Steps 0-3)
-            ├── GroupsView/
-            │   ├── GroupsView.vue         # Container für Gruppenphase
-            │   ├── GroupCard.vue          # Einzelne Gruppe
-            │   ├── GroupHeader.vue        # Gruppenüberschrift
-            │   ├── GroupMatches.vue       # Match-Container
-            │   ├── GroupTable.vue         # Gruppen-Tabelle
-            │   ├── TournamentInfo.vue     # Turnierinfos
-            │   ├── TournamentFooter.vue   # Footerzeile
-            │   ├── TiebreakControls.vue   # Tiebreak UI
-            │   ├── TiebreakMini.vue       # Schneller Tiebreak
-            │   └── TiebreakRage.vue       # Rage-Spiel UI
-            ├── PlayInView.vue             # Play-In-Matches
-            ├── KnockoutView.vue           # K.O.-Bracket Anzeige
-            ├── KnockoutPreview.vue        # K.O.-Vorschau
-            ├── ConfettiOverlay.vue        # Animationen
-            └── HelloWorld.vue             # Demo-Komponente
-```
-
----
-
-## 🔌 API & WebSocket Events (Backend-Fähigkeiten vs. aktueller UI-Einsatz)
-
-### REST (implementiert)
-
-| Endpoint | Methode | Hinweis |
-|----------|---------|---------|
-| `/compute-tournament-plan` | POST | **einziger Endpoint, den die UI aktuell nutzt** |
-| `/compute-playin-from-tables` | POST | Play-In-Berechnung (von der UI derzeit nicht aufgerufen) |
-| `/teams` | GET / POST | Team-Liste / Team anlegen |
-| `/teams/<id>` | DELETE | Team löschen |
-| `/tournament` | GET / POST | Turnier-Config lesen/setzen |
-| `/generate-groups` | POST | Gruppen + Round-Robin in DB erzeugen (UI ruft nicht auf) |
-| `/group-matches` | GET | Gruppenspiele aus DB |
-| `/group-matches/<group>/<match_id>/result` | POST | Ergebnis speichern |
-| `/health` | GET | Healthcheck |
-
-### Socket.IO (Server → Client Broadcasts)
-- `hello` (bei Connect)
-- `teams_updated`, `teams_deleted`
-- `group_matches_updated`
-- `match_updated`
-- `tournament_updated`
-
-**Client → Server:** aktuell nichts; das Frontend lauscht nur.
-
----
-
-## ⚙️ Konfiguration
-
-### Environment Variables (optional)
-
-**Backend** (in Docker oder `.env`):
-```bash
-FLASK_ENV=development        # oder production
-SECRET_KEY=your-secret-key   # Sicherheitsschlüssel
-DATABASE_URL=sqlite:///...   # Datenbank-Pfad
-DEBUG=True
-```
-
-**Frontend** (in Docker):
-```bash
-VITE_API_URL=http://localhost:5000
-```
-
-### Wichtige Config-Werte in `app.py`
-
-```python
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH}"
-app.config["SECRET_KEY"] = "change-me"  # ⚠️ Produktion anpassen!
-CORS(app, origins="*")  # ⚠️ In Produktion eingrenzen!
-```
-
----
-
-## 🔍 Feature-Details
-
-### Automatische Gruppeneinteilung
-- Backend-Planer: Band-Logik (≤4→1, ≤8→2, ≤11→3, ≤16→4, danach ~4–5 pro Gruppe) mit balancierten Gruppengrößen.
-- Frontend aktuell: verteilt Teams deterministisch per Index auf Gruppen und ignoriert den Backend-Plan. Zum echten Backend-Flow müsste `/generate-groups` benutzt werden.
-
-### Tiebreak-Logik (bei Gruppen-Tie)
-- Backend-Ranking (implementiert, aber UI nutzt es nicht): Punkte → Cups-Diff → H2H → Cups For → Name.
-- Frontend-Ranking (genutzt): Punkte → Cups-Diff → Cups For → ursprüngliche Reihenfolge; kein H2H.
-- Tiebreak-UI (Mini/Rage/Rage4) wirkt nur im Client-State, keine Persistenz oder Server-Abgleich.
-
-### K.O.-Bracket-Größe
-- Backend wählt die nächste 2er-Potenz, Bracket-Template nur für 4 oder 8 Teams hinterlegt.
-- Frontend rendert ebenfalls nur 4er/8er Brackets; Seeding alphabetisch, keine Byes-Unterstützung.
-
----
-
-## 📝 Development Workflow
-
-### Code ändern → Live-Updates
-
-1. **Backend:** Änderungen in `backend/app.py` → Docker-Container speichert automatisch (Volume Mount)
-2. **Frontend:** Änderungen in `frontend/src/` → Vite Hot-Module-Reload
-
-### Datenbank zurücksetzen
+Fuer lokale Direktverbindung muss in `frontend/.env.local` gesetzt werden:
 
 ```bash
-# Durch Volume-Mount können Sie die Datei löschen:
-rm backend/tournament.db
-
-# Oder im Backend:
-docker exec bp-backend rm /app/tournament.db
-docker restart bp-backend
+VITE_API_BASE=http://localhost:8000
 ```
 
-### Logs anschauen
-
-```bash
-docker-compose logs -f backend    # Backend-Logs
-docker-compose logs -f frontend   # Frontend-Logs
-docker-compose logs -f            # Alle Logs
-```
+Fuer WebSockets wird lokal ausserdem ein erreichbarer Redis-Server benoetigt.
 
 ---
 
-## ⚠️ Bekannte Limitierungen & TODO
+## Wichtige Implementierungsdetails
 
-### Aktuelle Limitierungen
+### Vite-Proxy
 
-| Bereich | Issue | Auswirkung |
-|---------|-------|-----------|
-| **Frontend↔Backend** | UI nutzt nur `/compute-tournament-plan`; keine REST/Sockets für Teams/Spiele | Reload verliert Daten, keine Mehrbenutzer-Sichtbarkeit |
-| **Datenbank** | SQLite (Backend nutzt sie; UI schreibt nicht) | Persistenz nur via API, nicht über die Oberfläche |
-| **Sicherheit** | CORS offen (`*`) | Nur für Development! |
-| **Config** | Hardcoded in `app.py` | Secret-Key in Produktion unsicher |
-| **Testing** | Keine Tests vorhanden | Fehlerpotenzial bei Änderungen |
+Im Docker-Setup wird standardmaessig ueber Vite auf folgende Pfade geproxyt:
 
-### Empfehlung: Nächste Schritte
+- `/tournaments`
+- `/auth`
+- `/health`
+- `/ws`
 
-- [ ] **Tests hinzufügen:** pytest (Backend) + Vitest/Jest (Frontend)
-- [ ] **Config externalisieren:** Environment-basierte Konfiguration für Prod
-- [ ] **Database Migration:** Alembic für DB-Versionierung
-- [ ] **API-Docs:** OpenAPI/Swagger Dokumentation
-- [ ] **Input-Validierung:** Strenger validieren (Teams, Scores)
-- [ ] **Error-Handling:** Konsistente Error-Messages
-- [ ] **Logging:** Strukturiertes Logging (Backend + Frontend)
-- [ ] **Backup-Strategie:** Automatische DB-Backups
+### Globale Fetch-Authentifizierung
 
----
+Das Frontend patcht `window.fetch` global in `src/fetch.js`, damit alle Requests automatisch den Bearer-Token tragen. Das ist relevant, weil nicht alle Komponenten den zentralen API-Client aus `src/api.js` nutzen.
 
-## 🔒 Sicherheitshinweise
+### Snapshot-Modell
 
-⚠️ **Für Produktion notwendig:**
+Der wichtigste Ladepunkt ist `GET /tournaments/{id}/load-all-data`. Der Endpoint liefert den zusammengesetzten Zustand fuer:
 
-1. **CORS einschränken:**
-   ```python
-   CORS(app, origins=["https://yourdomain.com"])
-   ```
+- Turnier-Metadaten
+- Teams und Spielerzuordnung
+- Gruppenphase
+- Gruppenstandings
+- Play-In-Matches
+- KO-Runden
 
-2. **Secret-Key sicher speichern:**
-   ```python
-   app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "fallback")
-   ```
-
-3. **SQLite → PostgreSQL/MySQL migrieren**
-
-4. **HTTPS/TLS enablen** (Reverse Proxy, z.B. Nginx)
-
-5. **Input-Validierung verstärken** (Länge, Sonderzeichen, Injections)
-
-6. **Rate Limiting** auf API-Endpoints
+Dieses Snapshot-Modell ist die Grundlage fuer Reload, LiveView und MobileView.
 
 ---
 
-## 🤝 Beitragen
+## Bekannte technische Luecken
 
-1. Feature-Branch erstellen: `git checkout -b feature/xyz`
-2. Änderungen committen: `git commit -am "Add feature xyz"`
-3. Push: `git push origin feature/xyz`
-4. Pull Request + Review
-
----
-
-## 📄 Lizenz
-
-(Lizenztyp hier eintragen, z.B. MIT, Apache 2.0)
+- Keine automatisierten Tests fuer Frontend oder Backend
+- Keine formale API-Dokumentation
+- SQLite ist die einzige aktiv konfigurierte Datenbank
+- `tableCount` aus dem UI fehlt im Django-Datenmodell
+- Play-In-Zusatzmetadaten werden nicht vollstaendig round-trip-faehig gespeichert
+- Echte Spieler-Toplisten werden im Mobile-Frontend noch nicht aus `CupHit` aufgebaut
+- Das Repo enthaelt noch Altlasten aus dem Flask-Vorgaenger, was die technische Trennschaerfe etwas verwischt
 
 ---
 
-## 📞 Support & Fragen
+## Empfehlung fuer die naechste Planungsrunde
 
-Bei Fragen oder Issues:
-- Issues im Repository erstellen
-- Code-Kommentare beachten (vor allem in `app.py` Backend-Routes)
-- Logs checken: `docker-compose logs`
+Wenn die naechsten Features strukturiert angegangen werden sollen, bieten sich aus dem IST-Zustand vor allem diese Baustellen an:
 
----
-
-### 📚 Weitere Ressourcen
-
-- [Vue 3 Dokumentation](https://vuejs.org)
-- [Flask Dokumentation](https://flask.palletsprojects.com)
-- [Socket.IO Guide](https://socket.io)
-- [Vite Guide](https://vitejs.dev)
-- [Docker Compose Handbook](https://docs.docker.com/compose)
+1. Turnierlogik fuer Gruppenaufbau und Play-In vom Frontend ins Django-Backend ziehen.
+2. `tableCount` wieder sauber ins Django-Modell und in die Snapshot-API aufnehmen.
+3. Play-In-Snapshots vollstaendig persistieren, damit Reload und Fortsetzen robust werden.
+4. Echte Spielerstatistiken aus `CupHit` in LiveView und MobileView ausspielen.
+5. Smoke-Tests fuer Kernflows aufsetzen.
 
 ---
 
-**Zuletzt aktualisiert:** 13. April 2026  
-**Version:** 0.0.1 (Development)
+## Veralteter Bestand im Repo
+
+`beerpong/backend/` enthaelt das fruehere Flask-/Socket.IO-Backend. Es ist aktuell ein Referenz- bzw. Migrationsrest und wird durch `docker-compose.yml` nicht gestartet. Teile des Frontends und der Projektgeschichte erklaeren sich noch aus dieser frueheren Architektur.
+
+---
+
+Zuletzt aktualisiert: 14. April 2026
