@@ -65,6 +65,21 @@
           placeholder="Anzahl Becher"
         />
       </div>
+
+      <div class="col-md-6 mt-4">
+        <label class="form-label fw-semibold">Anzahl Tische</label>
+        <input
+          type="number"
+          class="form-control form-control-lg bg-dark text-light border-secondary"
+          min="1"
+          max="20"
+          v-model.number="localTournament.tableCount"
+          placeholder="z.B. 2"
+        />
+        <small class="text-light d-block mt-2">
+          Wie viele Spiele können gleichzeitig ausgetragen werden?
+        </small>
+      </div>
     </div>
 
     <div class="card bg-dark border-secondary mb-4">
@@ -190,24 +205,46 @@
     <div class="mb-4">
       <h2 class="fw-bold mb-2">Teams eingeben</h2>
       <p class="text-secondary">
-        Gib die Teamnamen ein. Es werden <strong>{{ localTournament.participantCount }} Teams</strong> erwartet.
+        Gib Teamnamen und optional die Spielernamen ein. Es werden <strong>{{ localTournament.participantCount }} Teams</strong> erwartet.
       </p>
     </div>
 
     <form class="card bg-dark border-secondary mb-4" @submit.prevent="addTeam">
       <div class="card-body">
-        <div class="input-group input-group-lg">
-          <input
-            v-model="teamInput"
-            type="text"
-            class="form-control bg-dark text-light border-secondary"
-            :class="{ 'border-warning': isTeamInputDisabled }"
-            placeholder="Teamname eingeben..."
-            :disabled="isTeamInputDisabled"
-          />
-          <button class="btn px-4" :class="addButtonClass" type="submit" :disabled="isTeamInputDisabled">
-            {{ addButtonText }}
-          </button>
+        <div class="row g-2">
+          <div class="col-12">
+            <input
+              v-model="teamInput"
+              type="text"
+              class="form-control bg-dark text-light border-secondary"
+              :class="{ 'border-warning': isTeamInputDisabled }"
+              placeholder="Teamname (Pflichtfeld)..."
+              :disabled="isTeamInputDisabled"
+            />
+          </div>
+          <div class="col-6">
+            <input
+              v-model="player1Input"
+              type="text"
+              class="form-control form-control-sm bg-dark text-light border-secondary"
+              placeholder="Spieler 1 (Pflichtfeld)"
+              :disabled="isTeamInputDisabled"
+            />
+          </div>
+          <div class="col-6">
+            <input
+              v-model="player2Input"
+              type="text"
+              class="form-control form-control-sm bg-dark text-light border-secondary"
+              placeholder="Spieler 2 (Pflichtfeld)"
+              :disabled="isTeamInputDisabled"
+            />
+          </div>
+          <div class="col-12">
+            <button class="btn w-100 px-4" :class="addButtonClass" type="submit" :disabled="!canAddTeam">
+              {{ addButtonText }}
+            </button>
+          </div>
         </div>
         <small v-if="isTeamInputDisabled" class="text-warning mt-2 d-block">
           Maximale Team-Anzahl erreicht. Bitte entferne Teams um weitere hinzuzufügen.
@@ -239,10 +276,19 @@
         <li
           v-for="(t, idx) in localTeams"
           :key="idx"
-          class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between align-items-center"
+          class="list-group-item bg-dark text-light border-secondary"
         >
-          <span><strong>{{ idx + 1 }}.</strong> {{ t }}</span>
-          <button class="btn btn-sm btn-outline-danger" @click="removeTeam(idx)">Entfernen</button>
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <span><strong>{{ idx + 1 }}.</strong> {{ t.name }}</span>
+              <div v-if="t.player1 || t.player2" class="small text-secondary mt-1">
+                <span v-if="t.player1">{{ t.player1 }}</span>
+                <span v-if="t.player1 && t.player2"> &amp; </span>
+                <span v-if="t.player2">{{ t.player2 }}</span>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-outline-danger ms-2" @click="removeTeam(idx)">Entfernen</button>
+          </div>
         </li>
 
         <li
@@ -434,7 +480,7 @@ const props = defineProps({
   tournament: { type: Object, default: () => ({}) },
   teams: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['update:step','update:tournament','update:teams','finish','open-load-dialog'])
+const emit = defineEmits(['update:step','update:tournament','update:teams','update:team-players','finish','open-load-dialog'])
 
 /* step v-model */
 const stepProxy = computed({
@@ -449,6 +495,7 @@ function normalizeTournament(input) {
     mode: 'groups',
     participantCount: 8,
     cupsPerGame: typeof input?.cupsPerGame === 'number' ? String(input.cupsPerGame) : (input?.cupsPerGame ?? '6'),
+    tableCount: input?.tableCount ?? 2,
     finaleWith10Cups: !!input?.finaleWith10Cups,
     customCups: 6,
     ...input,
@@ -459,8 +506,15 @@ function normalizeTournament(input) {
   return t
 }
 const localTournament = ref(normalizeTournament(props.tournament))
-const localTeams = ref([...(props.teams || [])])
-const teamInput = ref('')
+// localTeams: array of { name, player1, player2 }
+const localTeams = ref(
+  (props.teams || []).map(t =>
+    typeof t === 'string' ? { name: t, player1: '', player2: '' } : { name: t.name || t, player1: t.player1 || '', player2: t.player2 || '' }
+  )
+)
+const teamInput   = ref('')
+const player1Input = ref('')
+const player2Input = ref('')
 
 /* derived */
 const actualCupsPerGame = computed(() =>
@@ -480,7 +534,7 @@ const previewGroups = computed(() => {
   const groups = []
   const groupCount = plan.value.groups.length
   const teamNames = localTeams.value.length >= localTournament.value.participantCount
-    ? localTeams.value
+    ? localTeams.value.map(t => t.name)
     : Array.from({ length: localTournament.value.participantCount }, (_, i) => `Team ${i + 1}`)
   for (let i = 0; i < groupCount; i++) {
     const groupName = `Gruppe ${String.fromCharCode(65 + i)}`
@@ -493,8 +547,22 @@ const previewGroups = computed(() => {
 
 /* teams ui */
 const isTeamInputDisabled = computed(() => localTeams.value.length >= localTournament.value.participantCount)
-const addButtonClass = computed(() => isTeamInputDisabled.value ? 'btn-warning' : 'btn-primary')
-const addButtonText  = computed(() => isTeamInputDisabled.value ? 'Maximal erreicht' : 'Hinzufügen')
+
+const canAddTeam = computed(() => {
+  if (isTeamInputDisabled.value) return false
+  const n = (teamInput.value || '').trim()
+  const p1 = (player1Input.value || '').trim()
+  const p2 = (player2Input.value || '').trim()
+  return n.length > 0 && p1.length > 0 && p2.length > 0
+})
+
+const addButtonClass = computed(() => !canAddTeam.value ? 'btn-secondary' : 'btn-primary')
+const addButtonText  = computed(() => {
+  if (isTeamInputDisabled.value) return 'Maximal erreicht'
+  if (!canAddTeam.value) return 'Bitte alle Felder ausfüllen'
+  return 'Team hinzufügen'
+})
+
 const emptySlotsCount = computed(() => Math.max(0, localTournament.value.participantCount - localTeams.value.length))
 const canContinue = computed(() => localTeams.value.length >= localTournament.value.participantCount)
 const validationMessage = computed(() => {
@@ -504,6 +572,12 @@ const validationMessage = computed(() => {
   if (c === m) return 'Perfekt! Alle Teams wurden hinzugefügt.'
   return 'Zu viele Teams - bitte entferne welche.'
 })
+function _emitTeams() {
+  emit('update:teams', localTeams.value.map(t => t.name))
+  emit('update:team-players', Object.fromEntries(
+    localTeams.value.map(t => [t.name, { player1: t.player1, player2: t.player2 }])
+  ))
+}
 const statusAlertClass = computed(() => {
   const c = localTeams.value.length, m = localTournament.value.participantCount
   if (c === 0) return 'alert-warning bg-dark border-warning'
@@ -525,16 +599,22 @@ const progressBarClass = computed(() => progressPercentage.value < 50 ? 'bg-warn
 
 /* actions */
 function addTeam() {
-  if (isTeamInputDisabled.value) return
+  if (!canAddTeam.value) return
   const name = (teamInput.value || '').trim()
   if (!name) return
-  localTeams.value.push(name)
+  localTeams.value.push({
+    name,
+    player1: (player1Input.value || '').trim(),
+    player2: (player2Input.value || '').trim(),
+  })
   teamInput.value = ''
-  emit('update:teams', [...localTeams.value])
+  player1Input.value = ''
+  player2Input.value = ''
+  _emitTeams()
 }
 function removeTeam(idx) {
   localTeams.value.splice(idx, 1)
-  emit('update:teams', [...localTeams.value])
+  _emitTeams()
 }
 async function emitFinish() {
   const finalTournament = {
@@ -542,8 +622,12 @@ async function emitFinish() {
     mode: 'groups',
     participantCount: clampInt(localTournament.value.participantCount, 2, 128),
     cupsPerGame: actualCupsPerGame.value,
+    tableCount: clampInt(localTournament.value.tableCount, 1, 20),
     finaleWith10Cups: !!localTournament.value.finaleWith10Cups,
-    teams: [...localTeams.value],
+    teams: localTeams.value.map(t => t.name),
+    teamPlayers: Object.fromEntries(
+      localTeams.value.map(t => [t.name, { player1: t.player1, player2: t.player2 }])
+    ),
   }
   emit('finish', finalTournament)
 }
@@ -580,19 +664,3 @@ function confirmName() {
   stepProxy.value = 1
 }
 </script>
-
-<style scoped>
-.card.bg-dark :is(.text-light, .text-secondary),
-.alert.bg-dark :is(.text-light, .text-secondary),
-.card-header.bg-dark :is(.text-light, .text-secondary) { color: rgba(255,255,255,0.78) !important; }
-.card.bg-dark, .card-header.bg-dark, .alert.bg-dark { color: #f8f9fa; }
-.form-control.bg-dark::placeholder, .form-select.bg-dark::placeholder { color: rgba(255,255,255,0.55); opacity: 1; }
-.form-control.bg-dark, .form-select.bg-dark { color: #f8f9fa; border-color: #6c757d; }
-.form-control.bg-dark:focus, .form-select.bg-dark:focus { border-color: #8a97a6; box-shadow: 0 0 0 0.2rem rgba(138,151,166,0.25); }
-.card { transition: all 0.2s ease; } .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-.btn { transition: transform 0.2s ease; } .btn:hover { transform: translateY(-1px); }
-.badge { font-weight: 500; padding: 0.4em 0.8em; }
-.list-group-item:hover { background-color: #2a2e35 !important; }
-.progress { background-color: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
-.progress-bar { transition: width 0.3s ease; }
-</style>

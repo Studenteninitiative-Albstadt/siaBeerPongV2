@@ -25,7 +25,10 @@
           <strong class="text-white">{{ tournamentName }}</strong>
           (Phase: {{ tournamentPhase }})
         </span>
-        <!-- "Neues Turnier" entfernt -->
+        <slot name="extra" />
+        <button class="btn btn-outline-secondary btn-sm" @click="$emit('create-new')">
+          Neues Turnier
+        </button>
         <button class="btn btn-primary btn-sm" @click="$emit('open-loader')">
           Turnier laden
         </button>
@@ -40,6 +43,7 @@ defineProps({
   tournamentName: { type: String, default: '' },
   tournamentPhase: { type: String, default: 'group' },
 })
+defineEmits(['create-new', 'open-loader', 'go-home'])
 </script>
 
 <style scoped>

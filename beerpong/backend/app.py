@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional
 
 from flask import Flask, request, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
+from flask_socketio import SocketIO, emit
 from sqlalchemy import text
 
 # -------------------------------------------------
@@ -26,6 +27,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = "change-me"
 
 db = SQLAlchemy(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # ---- CORS (robust, auch bei Fehlern / Preflight) ----
 ALLOWED_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
@@ -58,6 +60,7 @@ class Tournament(db.Model):
     mode = db.Column(db.String(20), default="groups")
     participant_count = db.Column(db.Integer, default=8)
     cups_per_game = db.Column(db.Integer, default=6)
+    table_count = db.Column(db.Integer, default=2)
     finale_with_10_cups = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     current_phase = db.Column(db.String(20), default="group")  # group, playin, ko, finished
@@ -85,6 +88,34 @@ class KOBracket(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     tournament = db.relationship('Tournament', backref='ko_entries')
+
+class MatchEvent(db.Model):
+    __tablename__ = "match_events"
+    id = db.Column(db.Integer, primary_key=True)
+    tournament_id = db.Column(db.Integer, db.ForeignKey('tournaments.id'))
+    match_id = db.Column(db.String(50), nullable=False) # z.B. 'Gruppe A-1'
+    
+    action_type = db.Column(db.String(50), nullable=False) # 'cup_hit', 'rerack', 'undo'
+    team_key = db.Column(db.String(10), nullable=False)    # 'team1' oder 'team2'
+    team_name = db.Column(db.String(120), nullable=True)   # Klartext-Team (da Teams nicht in DB)
+    player_name = db.Column(db.String(100), nullable=True) # Wer hat geworfen?
+    cup_index = db.Column(db.Integer, nullable=True)       # Welcher Becher (0-9)?
+    cup_layout = db.Column(db.Integer, nullable=True)      # 6 oder 10 (Layout zum Zeitpunkt des Wurfs)
+    phase_label = db.Column(db.String(20), nullable=True)  # 'group', 'playin', 'ko'
+    previous_state = db.Column(db.Text, nullable=True)     # JSON String für Undo bei Rerack
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    tournament = db.relationship('Tournament', backref='match_events')
+
+class CupPosition(db.Model):
+    __tablename__ = "cup_positions"
+    id = db.Column(db.Integer, primary_key=True)
+    layout_size = db.Column(db.Integer, nullable=False)   # 6 oder 10
+    cup_index = db.Column(db.Integer, nullable=False)     # 0..5 oder 0..9
+    row = db.Column(db.Integer, nullable=True)
+    col = db.Column(db.Integer, nullable=True)
+    x = db.Column(db.Float, nullable=True)
+    y = db.Column(db.Float, nullable=True)
 
 # -------------------------------------------------
 # DB init + leichte Auto-Migration (SQLite)
@@ -114,6 +145,7 @@ def ensure_sqlite_schema():
                 "mode": ("TEXT", "'groups'"),
                 "participant_count": ("INTEGER", "8"),
                 "cups_per_game": ("INTEGER", "6"),
+                "table_count": ("INTEGER", "2"),
                 "finale_with_10_cups": ("INTEGER", "0"),
                 # UTC via SQLite
                 "created_at": ("TEXT", "CURRENT_TIMESTAMP"),
@@ -156,6 +188,37 @@ def ensure_sqlite_schema():
                     _add_column(conn, "ko_brackets", col, ctype, dflt)
         except Exception as e:
             print("Schema check ko_brackets failed:", repr(e))
+
+        # ---- match_events
+        try:
+            cols = _table_columns(conn, "match_events")
+            need_events = {
+                "tournament_id": ("INTEGER", None),
+                "match_id": ("TEXT", "NULL"),
+                "action_type": ("TEXT", "NULL"),
+                "team_key": ("TEXT", "NULL"),
+                "team_name": ("TEXT", "NULL"),
+                "player_name": ("TEXT", "NULL"),
+                "cup_index": ("INTEGER", "NULL"),
+                "cup_layout": ("INTEGER", "NULL"),
+                "phase_label": ("TEXT", "NULL"),
+                "previous_state": ("TEXT", "NULL"),
+                "timestamp": ("TEXT", "CURRENT_TIMESTAMP"),
+            }
+            for col, (ctype, dflt) in need_events.items():
+                if col not in cols:
+                    _add_column(conn, "match_events", col, ctype, dflt)
+        except Exception as e:
+            print("Schema check match_events failed:", repr(e))
+
+        # ---- cup_positions
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(engine)
+            if "cup_positions" not in inspector.get_table_names():
+                CupPosition.__table__.create(bind=engine, checkfirst=True)
+        except Exception as e:
+            print("Schema check cup_positions failed:", repr(e))
 
 with app.app_context():
     ensure_sqlite_schema()
@@ -243,17 +306,34 @@ def compute_structure(n: int) -> Dict[str, Any]:
 def round_robin(team_names: List[str]) -> List[Dict[str, Any]]:
     matches = []
     order = 0
-    for i in range(len(team_names)):
-        for j in range(i + 1, len(team_names)):
-            matches.append({
-                "team1": team_names[i],
-                "team2": team_names[j],
-                "winner": None,
-                "cups_team1": None,
-                "cups_team2": None,
-                "order_index": order
-            })
-            order += 1
+    
+    teams = list(team_names)
+    if len(teams) < 2: return []
+    if len(teams) % 2 != 0: teams.append(None)
+    
+    total_rounds = len(teams) - 1
+    matches_per_round = len(teams) // 2
+    
+    for r in range(total_rounds):
+        for m in range(matches_per_round):
+            t1 = teams[m]
+            t2 = teams[-1 - m]
+            if t1 is not None and t2 is not None:
+                matches.append({
+                    "team1": t1,
+                    "team2": t2,
+                    "winner": None,
+                    "cups_team1": None,
+                    "cups_team2": None,
+                    "cups_state_team1": None,
+                    "cups_state_team2": None,
+                    "team1_rerack_used": False,
+                    "team2_rerack_used": False,
+                    "order_index": order
+                })
+                order += 1
+        teams.insert(1, teams.pop())
+        
     return matches
 
 # -------------------------------------------------
@@ -288,12 +368,14 @@ def api_create_tournament():
         mode = str(pick("mode", default="groups"))
         participant = max(2, min(128, as_int(pick("participantCount","participant_count", default=8), 8)))
         cups = max(1, min(20, as_int(pick("cupsPerGame","cups_per_game", default=6), 6)))
+        tables = max(1, min(20, as_int(pick("tableCount","table_count", default=2), 2)))
         finale10 = as_bool(pick("finaleWith10Cups","finale_with_10_cups", default=False), False)
 
         t = Tournament(
             name=name, mode=mode,
             participant_count=participant,
             cups_per_game=cups,
+            table_count=tables,
             finale_with_10_cups=finale10,
             current_phase="group",
         )
@@ -304,6 +386,7 @@ def api_create_tournament():
             "name": t.name,
             "participantCount": t.participant_count,
             "cupsPerGame": t.cups_per_game,
+            "tableCount": t.table_count,
             "finaleWith10Cups": t.finale_with_10_cups,
             "mode": t.mode,
             "currentPhase": t.current_phase,
@@ -326,12 +409,14 @@ def api_list_tournaments():
                 "name": r.name,
                 "participant_count": r.participant_count,
                 "cups_per_game": r.cups_per_game,
+                "table_count": r.table_count,
                 "finale_with_10_cups": r.finale_with_10_cups,
                 "mode": r.mode,
                 "current_phase": r.current_phase,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 # camel mirrors
                 "participantCount": r.participant_count,
+                "tableCount": r.table_count,
                 "cupsPerGame": r.cups_per_game,
                 "finaleWith10Cups": r.finale_with_10_cups,
                 "currentPhase": r.current_phase,
@@ -350,6 +435,7 @@ def api_get_tournament(t_id: int):
         "name": t.name,
         "participant_count": t.participant_count,
         "cups_per_game": t.cups_per_game,
+        "table_count": t.table_count,
         "finale_with_10_cups": t.finale_with_10_cups,
         "mode": t.mode,
         "current_phase": t.current_phase,
@@ -357,6 +443,7 @@ def api_get_tournament(t_id: int):
         "participantCount": t.participant_count,
         "cupsPerGame": t.cups_per_game,
         "finaleWith10Cups": t.finale_with_10_cups,
+        "tableCount": t.table_count,
         "currentPhase": t.current_phase,
         "createdAt": t.created_at.isoformat() if t.created_at else None
     })
@@ -372,6 +459,8 @@ def api_update_tournament(t_id: int):
     if "participant_count" in data: t.participant_count = int(data["participant_count"])
     if "cupsPerGame" in data: t.cups_per_game = int(data["cupsPerGame"])
     if "cups_per_game" in data: t.cups_per_game = int(data["cups_per_game"])
+    if "tableCount" in data: t.table_count = int(data["tableCount"])
+    if "table_count" in data: t.table_count = int(data["table_count"])
     if "finaleWith10Cups" in data: t.finale_with_10_cups = bool(data["finaleWith10Cups"])
     if "finale_with_10_cups" in data: t.finale_with_10_cups = bool(data["finale_with_10_cups"])
     if "currentPhase" in data: t.current_phase = str(data["currentPhase"])
@@ -445,7 +534,7 @@ def api_save_group_phase(t_id: int):
 @app.post("/tournaments/<int:t_id>/group-match")
 def api_save_group_match(t_id: int):
     """Single-Match Update für Gruppenphase."""
-    Tournament.query.get_or_404(t_id)
+    t = Tournament.query.get_or_404(t_id)
     body = request.json or {}
 
     gname = (body.get("group_name") or "").strip()
@@ -456,6 +545,13 @@ def api_save_group_match(t_id: int):
     cups2 = int(body.get("cups_team2") or 0)
     winner = body.get("winner")
     order_index = int(body.get("order_index") or 0)
+
+    cups_state_team1 = body.get("cups_state_team1")
+    cups_state_team2 = body.get("cups_state_team2")
+    team1_rerack_used = bool(body.get("team1_rerack_used") or False)
+    team2_rerack_used = bool(body.get("team2_rerack_used") or False)
+    
+    event_data = body.get("event_data")
 
     # Aktuelles Gruppen-Payload laden
     row = TournamentData.query.filter_by(
@@ -486,12 +582,28 @@ def api_save_group_match(t_id: int):
                 idx = i
                 break
 
+    # Vorhandene States behalten, wenn nichts geliefert
+    if idx >= 0:
+        existing = lst[idx]
+        if cups_state_team1 is None:
+            cups_state_team1 = existing.get("cups_state_team1")
+        if cups_state_team2 is None:
+            cups_state_team2 = existing.get("cups_state_team2")
+        if (body.get("team1_rerack_used") is None) and existing.get("team1_rerack_used"):
+            team1_rerack_used = existing.get("team1_rerack_used")
+        if (body.get("team2_rerack_used") is None) and existing.get("team2_rerack_used"):
+            team2_rerack_used = existing.get("team2_rerack_used")
+
     norm = {
         "id": mid or f"{gname}-{order_index+1}",
         "group_name": gname,
         "team1": team1, "team2": team2,
         "cups_team1": cups1, "cups_team2": cups2,
         "winner": winner,
+        "cups_state_team1": cups_state_team1,
+        "cups_state_team2": cups_state_team2,
+        "team1_rerack_used": team1_rerack_used,
+        "team2_rerack_used": team2_rerack_used,
         "order_index": order_index
     }
 
@@ -516,6 +628,43 @@ def api_save_group_match(t_id: int):
         ))
     except Exception as e:
         print("group-match → standings failed:", repr(e))
+
+    # Process Match Event log (DB speichern + Socket Broadcasten)
+    if event_data:
+        action = event_data.get("action_type")
+        team_key = event_data.get("team_key")
+        if action == "undo":
+            last_event = MatchEvent.query.filter_by(
+                tournament_id=t_id, match_id=norm["id"], team_key=team_key
+            ).order_by(MatchEvent.timestamp.desc()).first()
+            if last_event:
+                db.session.delete(last_event)
+            socketio.emit("undo_update", {"match_id": norm["id"], "team_key": team_key, "tournament_id": t_id}, broadcast=True)
+        elif action:
+            me = MatchEvent(
+                tournament_id=t_id,
+                match_id=norm["id"],
+                action_type=action,
+                team_key=team_key,
+                team_name=event_data.get("team_name"),
+                player_name=event_data.get("player_name"),
+                cup_index=event_data.get("cup_index"),
+                cup_layout=event_data.get("cup_layout"),
+                phase_label=t.current_phase,
+                previous_state=event_data.get("previous_state")
+            )
+            db.session.add(me)
+            socketio.emit(f"{action}_update", {
+                "tournament_id": t_id,
+                "match_id": norm["id"],
+                "team_key": team_key,
+                "cup_index": event_data.get("cup_index"),
+                "player_name": event_data.get("player_name"),
+                "previous_state": event_data.get("previous_state"),
+                "team_name": event_data.get("team_name"),
+                "cup_layout": event_data.get("cup_layout"),
+                "phase_label": t.current_phase
+            }, broadcast=True)
 
     db.session.commit()
     return jsonify(norm)
@@ -599,6 +748,7 @@ def api_load_all(t_id: int):
             "name": t.name,
             "participant_count": t.participant_count,
             "cups_per_game": t.cups_per_game,
+            "table_count": t.table_count,
             "finale_with_10_cups": t.finale_with_10_cups,
             "mode": t.mode,
             "current_phase": t.current_phase,
@@ -606,6 +756,7 @@ def api_load_all(t_id: int):
             # camelCase
             "participantCount": t.participant_count,
             "cupsPerGame": t.cups_per_game,
+            "tableCount": t.table_count,
             "finaleWith10Cups": t.finale_with_10_cups,
             "currentPhase": t.current_phase,
             "createdAt": t.created_at.isoformat() if t.created_at else None
@@ -770,6 +921,11 @@ def api_save_ko_match(t_id: int):
     winner = body.get("winner")
     cups1 = int(body.get("cups_team1") or 0)
     cups2 = int(body.get("cups_team2") or 0)
+    
+    cups_state_team1 = body.get("cups_state_team1")
+    cups_state_team2 = body.get("cups_state_team2")
+    team1_rerack_used = bool(body.get("team1_rerack_used") or False)
+    team2_rerack_used = bool(body.get("team2_rerack_used") or False)
 
     rows = KOBracket.query.filter_by(tournament_id=t_id).order_by(KOBracket.id.asc()).all()
     if not rows or r_idx >= len(rows):
@@ -787,7 +943,11 @@ def api_save_ko_match(t_id: int):
     cur.update({
         "team1": team1, "team2": team2,
         "winner": winner,
-        "cups_team1": cups1, "cups_team2": cups2
+        "cups_team1": cups1, "cups_team2": cups2,
+        "cups_state_team1": cups_state_team1,
+        "cups_state_team2": cups_state_team2,
+        "team1_rerack_used": team1_rerack_used,
+        "team2_rerack_used": team2_rerack_used
     })
     matches[m_idx] = cur
     r_data["matches"] = matches
@@ -818,8 +978,53 @@ def server_error(e):
     return jsonify({"error": "Internal Server Error"}), 500
 
 # -------------------------------------------------
+# WebSockets / Echtzeit Events
+# -------------------------------------------------
+
+@socketio.on("cup_hit")
+def on_cup_hit(data):
+    t_id = data.get("tournament_id")
+    match_id = data.get("match_id")
+    team_key = data.get("team_key")
+    cup_index = data.get("cup_index")
+    player = data.get("player_name")
+
+    # Event für das Undo-Log speichern
+    event = MatchEvent(
+        tournament_id=t_id,
+        match_id=match_id,
+        action_type="cup_hit",
+        team_key=team_key,
+        player_name=player,
+        cup_index=cup_index
+    )
+    db.session.add(event)
+    db.session.commit()
+    
+    # An alle Clients (LiveView) weiterleiten
+    emit("cup_hit_update", data, broadcast=True)
+
+@socketio.on("undo_action")
+def on_undo_action(data):
+    t_id = data.get("tournament_id")
+    match_id = data.get("match_id")
+    
+    # Letztes Event dieses Tisches finden und löschen
+    last_event = MatchEvent.query.filter_by(tournament_id=t_id, match_id=match_id).order_by(MatchEvent.timestamp.desc()).first()
+    if last_event:
+        db.session.delete(last_event)
+        db.session.commit()
+        
+    # Alle Clients informieren, dass ein Undo stattgefunden hat
+    emit("undo_update", {"match_id": match_id, "tournament_id": t_id}, broadcast=True)
+
+@socketio.on("rerack")
+def on_rerack(data):
+    emit("rerack_update", data, broadcast=True)
+
+# -------------------------------------------------
 # Dev Entry
 # -------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5001, debug=True)

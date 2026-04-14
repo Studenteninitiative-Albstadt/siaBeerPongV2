@@ -15,8 +15,17 @@
       </div>
     </div>
 
+    <!-- Ansichts-Umschalter -->
+    <div class="btn-group mb-4 w-100 shadow-sm" v-if="renderGroups.length > 0">
+      <input type="radio" class="btn-check" id="btnradio1" value="tables" v-model="viewMode">
+      <label class="btn btn-outline-info" for="btnradio1">🏓 Live-Tische (Automatisch)</label>
+
+      <input type="radio" class="btn-check" id="btnradio2" value="groups" v-model="viewMode">
+      <label class="btn btn-outline-info" for="btnradio2">📊 Gruppen & Tabellen</label>
+    </div>
+
     <!-- Turnier-Info -->
-    <div class="card bg-dark border-secondary mb-4 text-light">
+    <div class="card bg-dark border-secondary mb-4 text-light" v-show="viewMode === 'groups'">
       <div class="card-body py-3">
         <div class="row">
           <div class="col-md-4">
@@ -47,8 +56,77 @@
       Noch keine Gruppendaten. Klicke auf „Gruppen automatisch erzeugen“.
     </div>
 
+    <!-- ================= LIVE TISCHE ANSICHT ================= -->
+    <div v-if="viewMode === 'tables' && renderGroups.length > 0">
+      
+      <!-- Tisch-Verwaltung -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0 text-light">Aktive Tische ({{ activeTableCount }})</h5>
+        <div class="btn-group">
+          <button class="btn btn-sm btn-outline-secondary" @click="activeTableCount = Math.max(1, activeTableCount - 1)">- Tisch entfernen</button>
+          <button class="btn btn-sm btn-outline-secondary" @click="activeTableCount++">+ Tisch hinzufügen</button>
+        </div>
+      </div>
+
+      <!-- Aktive Tische -->
+      <div class="row g-4 mb-5">
+        <div v-for="(m, i) in activeMatches" :key="m.id" class="col-12 col-xl-6">
+          <div class="d-flex justify-content-between align-items-end mb-2 px-2">
+            <h4 class="text-warning mb-0 fw-bold">Tisch {{ i + 1 }}</h4>
+            <span class="badge bg-secondary">{{ m.group_name }}</span>
+          </div>
+
+          <!-- Schützenauswahl Overlay für diesen Tisch -->
+          <div v-if="pendingShooter && pendingShooter.matchId === m.id" class="p-5 border border-warning rounded bg-dark text-center shadow-lg" style="min-height: 250px;">
+            <h4 class="text-warning mb-4">Treffer für {{ pendingShooter.teamName }}!</h4>
+            <p class="text-light mb-4">Wer hat den Becher getroffen?</p>
+            <div class="d-flex justify-content-center gap-3">
+              <button v-if="pendingShooter.p1" class="btn btn-lg btn-success px-4 py-3 fw-bold" @click="selectShooter(pendingShooter.p1)">{{ pendingShooter.p1 }}</button>
+              <button v-if="pendingShooter.p2" class="btn btn-lg btn-success px-4 py-3 fw-bold" @click="selectShooter(pendingShooter.p2)">{{ pendingShooter.p2 }}</button>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary mt-4" @click="cancelShooter">Überspringen</button>
+          </div>
+
+          <!-- Tisch Ansicht -->
+          <MatchTableControls
+            v-else
+            :tournament-id="tournamentId"
+            :match-id="String(m.id)"
+            :team1-name="m.team1"
+            :team2-name="m.team2"
+            :team1-players="formatPlayers(m.team1)"
+            :team2-players="formatPlayers(m.team2)"
+            :is10-cups="cupsTarget === 10"
+            :cups-state-team1="m.cups_state_team1 || Array(cupsTarget).fill(true)"
+            :cups-state-team2="m.cups_state_team2 || Array(cupsTarget).fill(true)"
+            :team1-rerack-used="m.team1_rerack_used"
+            :team2-rerack-used="m.team2_rerack_used"
+            @cup-hit="onLiveCupHit(m.group_name, m.originalIndex, $event)"
+            @undo="onLiveUndo(m.group_name, m.originalIndex, $event)"
+            @rerack="onLiveRerack(m.group_name, m.originalIndex, $event)"
+          />
+        </div>
+        <div v-if="activeMatches.length === 0" class="col-12">
+          <div class="alert alert-success text-center py-5">
+            <h4 class="mb-0">🎉 Alle Gruppenspiele sind abgeschlossen!</h4>
+          </div>
+        </div>
+      </div>
+
+      <!-- Warteschlange -->
+      <div v-if="upcomingMatches.length > 0" class="card bg-dark border-secondary">
+        <div class="card-header bg-secondary text-light fw-bold">Als Nächstes (Warteschlange)</div>
+        <div class="list-group list-group-flush">
+          <div v-for="m in upcomingMatches" :key="m.id" class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between">
+            <span>{{ m.team1 }} <strong class="text-secondary mx-2">vs</strong> {{ m.team2 }}</span>
+            <span class="badge bg-dark border border-secondary">{{ m.group_name }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Kartenraster -->
-    <div class="row g-4">
+    <div v-show="viewMode === 'groups'" class="row g-4">
       <div v-for="group in renderGroups" :key="group.name" class="col-xl-4 col-lg-6">
         <div class="card bg-dark text-light border-secondary h-100 d-flex flex-column">
           <!-- Header -->
@@ -71,9 +149,10 @@
                   <tr>
                     <th class="ps-3">#</th>
                     <th>Team</th>
-                    <th class="text-center">P</th>
-                    <th class="text-center">S</th>
-                    <th class="text-center">N</th>
+                    <th class="text-center">Status</th>
+                    <th class="text-center">Punkte</th>
+                    <th class="text-center">Siege</th>
+                    <th class="text-center">Niederl.</th>
                     <th class="text-center">B+</th>
                     <th class="text-center">B-</th>
                     <th class="text-center">±</th>
@@ -96,6 +175,11 @@
                         TB
                       </span>
                     </td>
+                    <td class="text-center">
+                      <span class="badge rounded-pill" :class="statusBadge(idx)">
+                        {{ statusLabel(idx) }}
+                      </span>
+                    </td>
                     <td class="text-center fw-bold">{{ row.points }}</td>
                     <td class="text-center text-success">{{ row.wins }}</td>
                     <td class="text-center text-danger">{{ row.losses }}</td>
@@ -112,101 +196,83 @@
                     </td>
                   </tr>
                   <tr v-if="getFinalStandings(group.name).length === 0">
-                    <td colspan="8" class="text-center text-light">Noch keine Daten</td>
+                    <td colspan="9" class="text-center text-light">Noch keine Daten</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <!-- Tiebreak-Hinweis (nur nach Gruppen-Abschluss) -->
-            <div v-if="perGroupTiebreak[group.name]" class="p-3 border-top border-secondary small">
-              <div v-if="perGroupTiebreak[group.name].type === 'RAGE_CAGE_3'" class="text-warning">
-                <strong>Tiebreak:</strong> Rage Cage (exakter 3er-Gleichstand in 3er-Gruppe).
-              </div>
-              <div v-else-if="perGroupTiebreak[group.name].type === 'REMATCH_3_OF_4'" class="text-info">
-                <strong>Tiebreak:</strong> Mini-Rematch (3 Becher) zwischen Plätzen 2–4 (4er-Gruppe).
-              </div>
+            <!-- Last Cup Shoot-Off Panel -->
+            <div v-if="perGroupTiebreak[group.name] || lastCupElimState[group.name]" class="p-3 border-top border-warning">
+
+              <div class="fw-bold text-warning mb-2">⚡ Last Cup Shoot-Off</div>
+
+              <!-- Nicht gestartet -->
+              <template v-if="!lastCupElimState[group.name]">
+                <div class="text-secondary small mb-2">
+                  <span v-if="perGroupTiebreak[group.name]?.fixedFirst">
+                    <strong class="text-light">{{ perGroupTiebreak[group.name].fixedFirst }}</strong> ist gesetzt (Platz 1).
+                    Plätze 2–{{ perGroupTiebreak[group.name].teams.length + 1 }} gleichauf →
+                  </span>
+                  <span v-else>3 Teams exakt gleichauf →</span>
+                  1 Becher, alle werfen abwechselnd. Wer alleine nicht trifft, scheidet aus.
+                </div>
+                <button class="btn btn-sm btn-warning" @click="startLastCupElim(group.name)">
+                  Shoot-Off starten
+                </button>
+              </template>
+
+              <!-- Aktive Runde -->
+              <template v-else-if="!lastCupElimState[group.name].done">
+                <div class="text-secondary small mb-3">
+                  Runde <strong class="text-white">{{ lastCupElimState[group.name].roundCount }}</strong>
+                  — Hat jedes Team den Becher getroffen?
+                </div>
+
+                <!-- Bereits platzierte Teams -->
+                <div v-if="lastCupElimState[group.name].topPlaced.length || lastCupElimState[group.name].bottomPlaced.length" class="mb-2 d-flex flex-wrap gap-1">
+                  <span v-for="t in lastCupElimState[group.name].topPlaced" :key="'top'+t" class="badge bg-success">✓ {{ t }}</span>
+                  <span v-for="t in lastCupElimState[group.name].bottomPlaced" :key="'bot'+t" class="badge bg-danger">✗ {{ t }}</span>
+                </div>
+
+                <!-- Noch aktive Teams -->
+                <div v-for="team in lastCupElimState[group.name].remaining" :key="team" class="d-flex align-items-center gap-2 mb-2">
+                  <span class="flex-fill fw-bold text-white small">{{ team }}</span>
+                  <button class="btn btn-sm"
+                          :class="lastCupElimState[group.name].currentRound[team] === 'hit' ? 'btn-success' : 'btn-outline-success'"
+                          @click="setElimResult(group.name, team, 'hit')">✓ Treffer</button>
+                  <button class="btn btn-sm"
+                          :class="lastCupElimState[group.name].currentRound[team] === 'miss' ? 'btn-danger' : 'btn-outline-danger'"
+                          @click="setElimResult(group.name, team, 'miss')">✗ Fehler</button>
+                </div>
+
+                <div class="d-flex gap-2 mt-3">
+                  <button class="btn btn-sm btn-primary"
+                          :disabled="!isElimRoundComplete(group.name)"
+                          @click="evaluateElimRound(group.name)">
+                    Runde auswerten
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="resetElim(group.name)">Neu starten</button>
+                </div>
+              </template>
+
+              <!-- Fertig -->
+              <template v-else>
+                <div class="text-success small fw-bold mb-2">✅ Shoot-Off abgeschlossen!</div>
+                <div v-for="(t, i) in lastCupElimState[group.name].finalRanking" :key="t"
+                     class="d-flex align-items-center gap-2 mb-1 small">
+                  <span class="badge"
+                        :class="i === 0 ? 'bg-success' : i === lastCupElimState[group.name].finalRanking.length - 1 ? 'bg-danger' : 'bg-secondary'">
+                    Platz {{ i + 1 + (lastCupElimState[group.name].fixedFirst ? 1 : 0) }}
+                  </span>
+                  <span class="text-white">{{ t }}</span>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary mt-2" @click="resetElim(group.name)">Wiederholen</button>
+              </template>
+
             </div>
           </div>
 
-          <!-- Matches -->
-          <div
-            v-if="(groupMatches[group.name] || []).length"
-            class="card-footer border-top border-secondary bg-dark"
-          >
-            <p class="text-secondary small mb-2">
-              Spiele ({{ (groupMatches[group.name] || []).length }}) – Becher anklicken, um zu erhöhen.
-              <span
-                class="ms-2"
-                :class="isGroupComplete(group.name) ? 'text-success' : 'text-warning'"
-              >
-                {{ isGroupComplete(group.name) ? 'Gruppe abgeschlossen' : 'Gruppe noch nicht abgeschlossen' }}
-              </span>
-            </p>
-
-            <div
-              v-for="(m, idx) in groupMatches[group.name]"
-              :key="m.id || (group.name + '-' + idx)"
-              class="match-entry mb-3 p-2 border border-secondary rounded"
-            >
-              <div class="d-flex align-items-center justify-content-between gap-2">
-                <div class="flex-fill d-flex align-items-center justify-content-between gap-2">
-                  <button
-                    class="btn btn-sm d-flex align-items-center gap-2 match-team-btn"
-                    :class="m.winner === m.team1 ? 'btn-success' : 'btn-outline-light'"
-                    @click="incrementCups(group.name, idx, 'team1')"
-                    :title="`+1 Becher für ${m.team1}`"
-                  >
-                    <img src="/beer-cup.svg" alt="" width="18" height="18" />
-                    <span class="match-team-name">
-                      {{ formatTeamName(m.team1) }}
-                    </span>
-                  </button>
-                  <input
-                    type="number"
-                    class="form-control form-control-sm cups-input"
-                    style="width:70px;"
-                    :value="m.cups_team1 ?? 0"
-                    @input="setCups(group.name, idx, 'team1', $event.target.value)"
-                    min="0"
-                    :max="cupsTarget"
-                  />
-                </div>
-                <span class="text-secondary">vs</span>
-                <div class="flex-fill d-flex align-items-center justify-content-between gap-2">
-                  <input
-                    type="number"
-                    class="form-control form-control-sm cups-input"
-                    style="width:70px;"
-                    :value="m.cups_team2 ?? 0"
-                    @input="setCups(group.name, idx, 'team2', $event.target.value)"
-                    min="0"
-                    :max="cupsTarget"
-                  />
-                  <button
-                    class="btn btn-sm d-flex align-items-center gap-2 match-team-btn"
-                    :class="m.winner === m.team2 ? 'btn-success' : 'btn-outline-light'"
-                    @click="incrementCups(group.name, idx, 'team2')"
-                    :title="`+1 Becher für ${m.team2}`"
-                  >
-                    <img src="/beer-cup.svg" alt="" width="18" height="18" />
-                    <span class="match-team-name">
-                      {{ formatTeamName(m.team2) }}
-                    </span>
-                  </button>
-                </div>
-              </div>
-              <div class="text-center mt-1">
-                <small class="text-secondary">
-                  Ergebnis: {{ m.cups_team1 || 0 }} - {{ m.cups_team2 || 0 }} Becher
-                </small>
-                <div v-if="m.winner" class="mt-1">
-                  <small class="text-success">🏆 Sieger: {{ m.winner }}</small>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- /Matches -->
         </div>
       </div>
     </div>
@@ -315,61 +381,21 @@
             </div>
           </div>
 
-          <!-- Tiebreak-Pläne (gruppenlokal) -->
+          <!-- Tiebreak-Pläne (gruppenlokal, noch nicht aufgelöst) -->
           <div
             v-if="(playInResult.tiebreaks?.length || 0) > 0"
-            class="card bg-dark border-secondary mt-3"
+            class="card bg-dark border-warning mt-3"
           >
-            <div class="card-header bg-dark border-secondary text-light">
-              <strong>Tiebreak-Pläne</strong>
+            <div class="card-header bg-dark border-warning text-warning">
+              <strong>⚡ Offene Shoot-Offs</strong>
             </div>
             <div class="card-body">
-              <div v-for="(tb, i) in playInResult.tiebreaks" :key="i" class="mb-3">
-                <div class="fw-semibold text-white mb-1">
-                  {{ tb.group }}:
-                  <span
-                    v-if="tb.type === 'RAGE_CAGE_3'"
-                    class="text-warning"
-                  >
-                    Rage Cage (3er-Gruppe)
-                  </span>
-                  <span
-                    v-else-if="tb.type === 'REMATCH_3_OF_4'"
-                    class="text-info"
-                  >
-                    Mini-Rematch (3 Becher) für Plätze 2–4
-                  </span>
-                </div>
-
-                <div
-                  v-if="tb.type === 'RAGE_CAGE_3'"
-                  class="text-secondary small"
-                >
-                  Teams: {{ tb.teams.join(', ') }} → Letzter im Rage Cage = Gruppen-Letzter.
-                </div>
-
-                <div v-else-if="tb.type === 'REMATCH_3_OF_4'">
-                  <div class="text-secondary small mb-2">
-                    Spiele (3 Becher): jeder gegen jeden
-                  </div>
-                  <div class="d-flex flex-column gap-1">
-                    <div
-                      v-for="(m, k) in tb.rematch_matches"
-                      :key="k"
-                      class="d-flex align-items-center gap-2"
-                    >
-                      <span class="badge bg-secondary">{{ m.team1 }}</span>
-                      <span class="text-light">vs</span>
-                      <span class="badge bg-secondary">{{ m.team2 }}</span>
-                      <span class="badge bg-dark border border-secondary">
-                        {{ m.cups_per_game }} B.
-                      </span>
-                    </div>
-                  </div>
-                  <div class="text-secondary small mt-2">
-                    Falls erneut exakt gleich: Rage Cage für diese drei → letzter = Platz 4;
-                    danach 1 Tiebreak-Match (3 Becher) zwischen den verbleibenden zwei um Platz 2/3.
-                  </div>
+              <div v-for="(tb, i) in playInResult.tiebreaks" :key="i" class="mb-2">
+                <div class="fw-semibold text-white">{{ tb.group }}</div>
+                <div class="text-secondary small">
+                  Teams gleichauf: {{ tb.teams.join(', ') }}
+                  <span v-if="tb.fixedFirst"> ({{ tb.fixedFirst }} ist Platz 1)</span>
+                  → Shoot-Off in der Gruppen-Ansicht starten.
                 </div>
               </div>
             </div>
@@ -402,11 +428,11 @@
     <div class="mt-4 p-3 border border-secondary rounded">
       <h6>ℹ️ Tiebreak-Regeln</h6>
       <p class="mb-1 text-secondary">
-        <strong>3 Teams (exakt gleich):</strong> Rage-Cage – der Letzte wird Gruppen-Letzter.
-      </p>
-      <p class="mb-1 text-secondary">
-        <strong>4 Teams (Plätze 2–4 exakt gleich):</strong> Mini-Rematch (3 Becher, 3 Spiele).
-        Bei erneutem exaktem Gleichstand: Rage Cage um den Letzten, danach 1 Tiebreak-Match um Platz 2/3.
+        <strong>3 Teams exakt gleich (Punkte + Becher-Diff + Becher+):</strong>
+        Last Cup Shoot-Off — 1 Becher wird aufgestellt, alle 3 Teams werfen der Reihe nach.
+        Trifft genau 1 Team: dieses Team belegt den besten Platz, die anderen 2 werfen weiter.
+        Fehlt genau 1 Team: dieses Team scheidet aus (letzter Platz), die anderen 2 werfen weiter.
+        Treffen oder fehlen alle: Runde wird wiederholt.
       </p>
       <p class="mb-0 text-secondary">
         <strong>Sonst:</strong> Standard-Sortierung: Punkte → Becher-Diff → Becher+ → Name.
@@ -417,33 +443,45 @@
 
 <script setup>
 import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import MatchTableControls from '../MatchTableControls.vue'
 
-/** API-Base */
-const API =
-  `${window.location.protocol}//${window.location.hostname}:5001` || import.meta.env.VITE_API_BASE
+/** API-Base — Vite proxy routes /tournaments/* to Django */
+const API = import.meta.env.VITE_API_BASE || ''
 
 /** Props */
 const props = defineProps({
   tournamentId: { type: Number, required: true },
   tournament: { type: Object, required: true },
-  teams: { type: Array, required: true }
+  teams: { type: Array, required: true },
+  teamPlayers: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['back', 'create-ko', 'update:group-matches'])
 
 /** State */
 const loading = ref(false)
+const viewMode = ref('tables') // 'tables' | 'groups'
 const groupMatches = ref({}) // { "Gruppe A":[{...}], ... }
 const groupStandingsSrv = ref({}) // { "Gruppe A":[{...}], ... }
 const lastGroupsMeta = ref([]) // { name, size, teams[] }
 const playInResult = ref(null)
+const playInNeeded = computed(() => !!(playInResult.value && playInResult.value.playin_needed))
+
+const activeTableMatchId = ref(null)
 
 /** pro Gruppe erkannter Tiebreak (nur nach Gruppen-Abschluss) */
-const perGroupTiebreak = ref({}) // { "Gruppe A": {type:'RAGE_CAGE_3'| 'REMATCH_3_OF_4', ... } }
+const perGroupTiebreak = ref({}) // { "Gruppe A": { type:'LAST_CUP_ELIM', teams:[...], fixedFirst:null } }
+
+/** Interaktiver Shoot-Off-State pro Gruppe */
+const lastCupElimState = ref({})
+// { "Gruppe A": { roundCount, remaining, currentRound, topPlaced, bottomPlaced, done, finalRanking, fixedFirst } }
 
 /** Save-Status + Timer */
 const saveState = ref('idle')
 let autosaveTimer = null
 const AUTOSAVE_MS = 400
+
+/** Schützenauswahl: { groupName, matchIndex, teamKey } | null */
+const pendingShooter = ref(null)
 
 /** Derived */
 const cupsTarget = computed(() => {
@@ -451,6 +489,18 @@ const cupsTarget = computed(() => {
   return Number.isNaN(v) ? 6 : v
 })
 const teamsDone = computed(() => props.teams?.length || 0)
+
+const dynamicTableCount = ref(null)
+const activeTableCount = computed({
+  get() {
+    if (dynamicTableCount.value !== null) return dynamicTableCount.value
+    const v = Number(props.tournament?.tableCount ?? props.tournament?.table_count)
+    return Number.isNaN(v) || v < 1 ? 2 : v
+  },
+  set(val) {
+    dynamicTableCount.value = val
+  }
+})
 
 /** Vorschau aus Teams (Fallback) */
 const autoGroupsPreview = computed(() => {
@@ -491,6 +541,44 @@ const renderGroups = computed(() => {
       return { name, teams: g?.teams ?? [] }
     }
   })
+})
+
+/** Globale Warteschlange für Live-Tische */
+const allMatchesFlat = computed(() => {
+  const arr = []
+  for (const [gName, ms] of Object.entries(groupMatches.value)) {
+    for (let i = 0; i < ms.length; i++) {
+      arr.push({ ...ms[i], group_name: gName, originalIndex: i })
+    }
+  }
+  // Interleave Matches für alle Gruppen
+  arr.sort((a, b) => {
+    if (a.order_index !== b.order_index) return a.order_index - b.order_index
+    return a.group_name.localeCompare(b.group_name, 'de')
+  })
+  return arr
+})
+
+const pendingMatches = computed(() => allMatchesFlat.value.filter(m => !m.winner))
+
+const activeMatches = computed(() => {
+  const active = []
+  const playingTeams = new Set()
+  
+  for (const m of pendingMatches.value) {
+    if (active.length >= activeTableCount.value) break
+    if (!playingTeams.has(m.team1) && !playingTeams.has(m.team2)) {
+      active.push(m)
+      playingTeams.add(m.team1)
+      playingTeams.add(m.team2)
+    }
+  }
+  return active
+})
+
+const upcomingMatches = computed(() => {
+  const activeIds = new Set(activeMatches.value.map(m => m.id))
+  return pendingMatches.value.filter(m => !activeIds.has(m.id)).slice(0, 5)
 })
 
 /* ---------------- Backend I/O ---------------- */
@@ -716,6 +804,158 @@ function ensureGroupMatches(group) {
 
 /* ------------ Eingabe-Handler (lokal + Autosave) ----------- */
 
+function toggleLiveTable(groupName, matchIndex) {
+  const list = [...groupMatches.value[groupName]]
+  const m = { ...list[matchIndex] }
+
+  // Schließen, falls bereits offen
+  if (activeTableMatchId.value === m.id) {
+    activeTableMatchId.value = null
+    return
+  }
+
+  // Initialisiere Becher-Arrays mit 'true', falls das Spiel gerade erst gestartet wird
+  if (!m.cups_state_team1 || m.cups_state_team1.length === 0) {
+    m.cups_state_team1 = Array(cupsTarget.value).fill(true)
+  }
+  if (!m.cups_state_team2 || m.cups_state_team2.length === 0) {
+    m.cups_state_team2 = Array(cupsTarget.value).fill(true)
+  }
+
+  list[matchIndex] = m
+  groupMatches.value[groupName] = list
+  activeTableMatchId.value = m.id
+}
+
+function onLiveCupHit(groupName, matchIndex, payload) {
+  const { teamKey, cupIndex } = payload
+  const list = [...groupMatches.value[groupName]]
+  const match = list[matchIndex]
+  const teamName = teamKey === 'team2' ? match.team1 : match.team2
+  
+  const players = props.teamPlayers[teamName]
+  if (players && (players.player1 || players.player2)) {
+    pendingShooter.value = { matchId: match.id, groupName, matchIndex, teamKey, teamName, cupIndex, fromTable: true, p1: players.player1, p2: players.player2 }
+    return
+  }
+  _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, null)
+}
+
+function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName) {
+  const list = [...groupMatches.value[groupName]]
+  const m = { ...list[matchIndex] }
+
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  
+  // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
+  if (!m[stateKey] || !Array.isArray(m[stateKey])) {
+    m[stateKey] = Array(cupsTarget.value).fill(true)
+  }
+  
+  const stateArray = [...m[stateKey]]
+  stateArray[cupIndex] = false
+  m[stateKey] = stateArray
+  
+  const historyKey = teamKey === 'team1' ? 'hit_history_team1' : 'hit_history_team2'
+  if (!m[historyKey]) m[historyKey] = []
+  m[historyKey].push(cupIndex)
+
+  if (teamKey === 'team2') {
+    m.cups_team1 = clampInt((m.cups_team1 || 0) + 1, 0, cupsTarget.value)
+  } else {
+    m.cups_team2 = clampInt((m.cups_team2 || 0) + 1, 0, cupsTarget.value)
+  }
+
+  applyWinnerRule(m)
+  list[matchIndex] = m
+  groupMatches.value[groupName] = list
+  emit('update:group-matches', groupMatches.value)
+
+  if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
+  else clearGroupTiebreak(groupName)
+
+  const eventData = { action_type: 'cup_hit', team_key: teamKey, cup_index: cupIndex, player_name: shooterName }
+  _sendGroupMatch(groupName, m, eventData)
+  scheduleAutoSave()
+}
+
+function onLiveUndo(groupName, matchIndex, payload) {
+  const { teamKey } = payload
+  const list = [...groupMatches.value[groupName]]
+  const m = { ...list[matchIndex] }
+  
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  const historyKey = teamKey === 'team1' ? 'hit_history_team1' : 'hit_history_team2'
+  
+  // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
+  if (!m[stateKey] || !Array.isArray(m[stateKey])) {
+    m[stateKey] = Array(cupsTarget.value).fill(true)
+  }
+  
+  let restoredCupIndex = -1
+
+  if (m[historyKey] && m[historyKey].length > 0) {
+    const history = [...m[historyKey]]
+    restoredCupIndex = history.pop()
+    m[historyKey] = history
+  } else if (m[stateKey]) {
+    // Fallback: Falls die Seite neu geladen wurde und die Historie leer ist,
+    // stelle einfach den ersten fehlenden Becher wieder her
+    restoredCupIndex = m[stateKey].indexOf(false)
+  }
+  
+  if (restoredCupIndex !== -1) {
+    // Becher wieder aufstellen
+    m[stateKey][restoredCupIndex] = true
+    
+    // Punktzahl wieder abziehen (Wenn Team 2 den Becher zurückbekommt, verliert Team 1 den Punkt)
+    if (teamKey === 'team2') {
+      m.cups_team1 = clampInt((m.cups_team1 || 0) - 1, 0, cupsTarget.value)
+    } else {
+      m.cups_team2 = clampInt((m.cups_team2 || 0) - 1, 0, cupsTarget.value)
+    }
+    
+    applyWinnerRule(m)
+    list[matchIndex] = m
+    groupMatches.value[groupName] = list
+    emit('update:group-matches', groupMatches.value)
+    
+    if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
+    else clearGroupTiebreak(groupName)
+    
+    const eventData = { action_type: 'undo', team_key: teamKey, cup_index: restoredCupIndex }
+    _sendGroupMatch(groupName, m, eventData)
+    scheduleAutoSave()
+  }
+}
+
+function onLiveRerack(groupName, matchIndex, payload) {
+  const { teamKey, newState } = payload
+  const list = [...groupMatches.value[groupName]]
+  const m = { ...list[matchIndex] }
+  
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  
+  // Fix: Array initialisieren, falls das Spiel gerade erst gestartet wurde
+  if (!m[stateKey] || !Array.isArray(m[stateKey])) {
+    m[stateKey] = Array(cupsTarget.value).fill(true)
+  }
+  
+  const previousState = [...m[stateKey]]
+  
+  if (teamKey === 'team1') m.team1_rerack_used = true
+  if (teamKey === 'team2') m.team2_rerack_used = true
+  m[stateKey] = newState
+  
+  list[matchIndex] = m
+  groupMatches.value[groupName] = list
+  emit('update:group-matches', groupMatches.value)
+  
+  const eventData = { action_type: 'rerack', team_key: teamKey, previous_state: JSON.stringify(previousState) }
+  _sendGroupMatch(groupName, m, eventData)
+  scheduleAutoSave()
+}
+
 function setCups(groupName, matchIndex, teamField, rawValue) {
   const updated = { ...groupMatches.value }
   const list = [...(updated[groupName] || [])]
@@ -740,6 +980,41 @@ function setCups(groupName, matchIndex, teamField, rawValue) {
 }
 
 function incrementCups(groupName, matchIndex, teamKey) {
+  const match = (groupMatches.value[groupName] || [])[matchIndex]
+  if (!match) return
+  const teamName = teamKey === 'team1' ? match.team1 : match.team2
+  const players = props.teamPlayers[teamName]
+  // If team has named players, ask who scored first
+  if (players && (players.player1 || players.player2)) {
+    pendingShooter.value = { groupName, matchIndex, teamKey, teamName }
+    return
+  }
+  _doIncrementCups(groupName, matchIndex, teamKey, null, null)
+}
+
+function selectShooter(playerName) {
+  if (!pendingShooter.value) return
+  const { groupName, matchIndex, teamKey, teamName, cupIndex, fromTable } = pendingShooter.value
+  pendingShooter.value = null
+  if (fromTable) {
+    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, playerName)
+  } else {
+    _doIncrementCups(groupName, matchIndex, teamKey, playerName, teamName)
+  }
+}
+
+function cancelShooter() {
+  if (!pendingShooter.value) return
+  const { groupName, matchIndex, teamKey, cupIndex, fromTable } = pendingShooter.value
+  pendingShooter.value = null
+  if (fromTable) {
+    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, null)
+  } else {
+    _doIncrementCups(groupName, matchIndex, teamKey, null, null)
+  }
+}
+
+function _doIncrementCups(groupName, matchIndex, teamKey, shooter, shooterTeam) {
   const updated = { ...groupMatches.value }
   const list = [...(updated[groupName] || [])]
   const m = { ...list[matchIndex] }
@@ -758,7 +1033,46 @@ function incrementCups(groupName, matchIndex, teamKey) {
   } else {
     clearGroupTiebreak(groupName)
   }
+
+  _sendGroupMatch(groupName, m, {
+    action_type: 'cup_hit',
+    team_key: teamKey,
+    team_name: teamKey === 'team1' ? m.team1 : m.team2,
+    player_name: shooter || null,
+    cup_layout: cupsTarget.value,
+    cup_index: null
+  })
   scheduleAutoSave()
+}
+
+async function _sendGroupMatch(groupName, match, eventData) {
+  if (!props.tournamentId) return
+  try {
+    const body = {
+      group_name: groupName,
+      team1: match.team1,
+      team2: match.team2,
+      cups_team1: match.cups_team1 ?? 0,
+      cups_team2: match.cups_team2 ?? 0,
+      winner: match.winner ?? null,
+      order_index: match.order_index ?? 0,
+      id: typeof match.id === 'number' ? match.id : null,
+      cups_state_team1: match.cups_state_team1,
+      cups_state_team2: match.cups_state_team2,
+      hit_history_team1: match.hit_history_team1,
+      hit_history_team2: match.hit_history_team2,
+      team1_rerack_used: match.team1_rerack_used,
+      team2_rerack_used: match.team2_rerack_used,
+      event_data: eventData || null
+    }
+    await fetch(`${API}/tournaments/${props.tournamentId}/group-match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch (e) {
+    console.warn('group-match send failed', e)
+  }
 }
 
 /* --------------- Tabellen/Play-In --------------- */
@@ -801,17 +1115,7 @@ function computePlayInLocal() {
 
     if (isGroupComplete(g)) {
       const plan = detectGroupTiebreak(g, rows)
-      if (plan) {
-        tiebreakPlans.push(plan)
-        if (plan.type === 'RAGE_CAGE_3') {
-          rageCageGroups.push({
-            group: g,
-            teams: plan.teams.slice(),
-            note:
-              '3er-Gleichstand (3er-Gruppe): Rage Cage – Letzter scheidet aus.'
-          })
-        }
-      }
+      if (plan) tiebreakPlans.push(plan)
     }
 
     if (rows[0]) directQualified.push(rows[0].name)
@@ -1011,25 +1315,45 @@ function normalizeMatches(list) {
     cups_team1: Number.isFinite(+m.cups_team1) ? +m.cups_team1 : 0,
     cups_team2: Number.isFinite(+m.cups_team2) ? +m.cups_team2 : 0,
     winner: m.winner ?? null,
-    order_index: m.order_index ?? idx
+    order_index: m.order_index ?? idx,
+    cups_state_team1: Array.isArray(m.cups_state_team1) && m.cups_state_team1.length > 0 ? m.cups_state_team1 : null,
+    cups_state_team2: Array.isArray(m.cups_state_team2) && m.cups_state_team2.length > 0 ? m.cups_state_team2 : null,
+    hit_history_team1: Array.isArray(m.hit_history_team1) ? m.hit_history_team1 : [],
+    hit_history_team2: Array.isArray(m.hit_history_team2) ? m.hit_history_team2 : [],
+    team1_rerack_used: !!m.team1_rerack_used,
+    team2_rerack_used: !!m.team2_rerack_used
   }))
 }
 
 function normalizeStandingsMap(obj) {
+  const pick = (src, keys, fallback = 0) => {
+    for (const k of keys) {
+      if (src[k] !== undefined && src[k] !== null) return src[k]
+    }
+    return fallback
+  }
   const out = {}
   for (const [g, rows] of Object.entries(obj || {})) {
     out[g] = (rows || []).map(r => ({
-      name: String(r.name ?? ''),
-      wins: Number.isFinite(+r.wins) ? +r.wins : 0,
-      losses: Number.isFinite(+r.losses) ? +r.losses : 0,
-      points: Number.isFinite(+r.points) ? +r.points : 0,
-      cupsFor: Number.isFinite(+r.cupsFor) ? +r.cupsFor : 0,
-      cupsAgainst: Number.isFinite(+r.cupsAgainst)
-        ? +r.cupsAgainst
+      name: String(pick(r, ['name', 'team', 'team_name'], '')),
+      wins: Number.isFinite(+pick(r, ['wins', 'win', 'games_won', 'w'])) ? +pick(r, ['wins', 'win', 'games_won', 'w']) : 0,
+      losses: Number.isFinite(+pick(r, ['losses', 'loss', 'games_lost', 'l'])) ? +pick(r, ['losses', 'loss', 'games_lost', 'l']) : 0,
+      points: Number.isFinite(+pick(r, ['points', 'pts', 'score'])) ? +pick(r, ['points', 'pts', 'score']) : 0,
+      cupsFor: Number.isFinite(+pick(r, ['cupsFor', 'cups_for', 'cupsPlus', 'cups_plus', 'cups'], 0))
+        ? +pick(r, ['cupsFor', 'cups_for', 'cupsPlus', 'cups_plus', 'cups'], 0)
         : 0,
-      cupsDiff: Number.isFinite(+r.cupsDiff)
-        ? +r.cupsDiff
-        : Number(r.cupsFor || 0) - Number(r.cupsAgainst || 0)
+      cupsAgainst: Number.isFinite(+pick(r, ['cupsAgainst', 'cups_against', 'cupsMinus', 'cups_minus'], 0))
+        ? +pick(r, ['cupsAgainst', 'cups_against', 'cupsMinus', 'cups_minus'], 0)
+        : 0,
+      cupsDiff: Number.isFinite(+pick(r, ['cupsDiff', 'cups_diff'], NaN))
+        ? +pick(r, ['cupsDiff', 'cups_diff'], NaN)
+        : Number(pick(r, ['cupsFor', 'cups_for', 'cupsPlus', 'cups_plus', 'cups'], 0)) -
+          Number(pick(r, ['cupsAgainst', 'cups_against', 'cupsMinus', 'cups_minus'], 0))
+    }))
+    // Punkte ableiten, falls Backend keine liefert (Standard: 2 pro Sieg)
+    out[g] = out[g].map(row => ({
+      ...row,
+      points: Number.isFinite(row.points) && row.points > 0 ? row.points : row.wins * 2
     }))
   }
   return out
@@ -1042,9 +1366,22 @@ function guessGroupNameFromId(id) {
 }
 function roundRobin(arr) {
   const a = (arr || []).filter(Boolean)
+  if (a.length < 2) return []
+
+  const teams = [...a]
+  if (teams.length % 2 !== 0) teams.push(null) // Virtuelles Freilos bei ungerader Anzahl
+
+  const totalRounds = teams.length - 1
+  const matchesPerRound = teams.length / 2
   const ms = []
-  for (let i = 0; i < a.length; i++) {
-    for (let j = i + 1; j < a.length; j++) ms.push([a[i], a[j]])
+  for (let round = 0; round < totalRounds; round++) {
+    for (let match = 0; match < matchesPerRound; match++) {
+      const t1 = teams[match]
+      const t2 = teams[teams.length - 1 - match]
+      if (t1 !== null && t2 !== null) ms.push([t1, t2])
+    }
+    // Rotation: Das erste Team bleibt fixiert, die anderen rotieren durch
+    teams.splice(1, 0, teams.pop())
   }
   return ms
 }
@@ -1105,23 +1442,38 @@ function computeAllTiebreaksForCompletedGroups() {
 }
 
 function getFinalStandings(groupName) {
-  const matches = groupMatches.value[groupName] || []
-  if (matches.length > 0) return computeGroupTable(matches)
-
+  let arr
   const srv = groupStandingsSrv.value[groupName]
-  if (Array.isArray(srv) && srv.length > 0) return srv
+  if (Array.isArray(srv) && srv.length > 0) {
+    arr = srv
+  } else {
+    const matches = groupMatches.value[groupName] || []
+    if (matches.length > 0) {
+      arr = computeGroupTable(matches)
+    } else {
+      const meta = lastGroupsMeta.value.find(g => g.name === groupName)
+      const teams = meta?.teams ?? []
+      arr = teams.map(name => ({
+        name, wins: 0, losses: 0, points: 0, cupsFor: 0, cupsAgainst: 0, cupsDiff: 0
+      }))
+    }
+  }
 
-  const meta = lastGroupsMeta.value.find(g => g.name === groupName)
-  const teams = meta?.teams ?? []
-  return teams.map(name => ({
-    name,
-    wins: 0,
-    losses: 0,
-    points: 0,
-    cupsFor: 0,
-    cupsAgainst: 0,
-    cupsDiff: 0
-  }))
+  // Shoot-Off-Ergebnis einarbeiten
+  const elimState = lastCupElimState.value[groupName]
+  if (elimState?.done && elimState.finalRanking?.length > 0) {
+    return applyElimOverride(arr, elimState.finalRanking)
+  }
+  return arr
+}
+
+function applyElimOverride(standings, finalRanking) {
+  const rankedSet = new Set(finalRanking)
+  const byName = new Map(standings.map(r => [r.name, r]))
+  let rankIdx = 0
+  return standings.map(row =>
+    rankedSet.has(row.name) ? (byName.get(finalRanking[rankIdx++]) ?? row) : row
+  )
 }
 
 function computeGroupTable(matches) {
@@ -1173,7 +1525,18 @@ function computeGroupTable(matches) {
 }
 
 function getRowClass(idx) {
-  return idx < 2 ? 'table-success' : ''
+  return idx < 2 ? 'table-success' : playInNeeded.value ? 'table-warning' : ''
+}
+
+function statusLabel(idx) {
+  if (idx < 2) return 'Direkt'
+  return playInNeeded.value ? 'Play-In' : '—'
+}
+
+function statusBadge(idx) {
+  if (idx < 2) return 'bg-success'
+  if (playInNeeded.value) return 'bg-warning text-dark'
+  return 'bg-secondary'
 }
 function safeNum(v) {
   const n = Number(v)
@@ -1202,11 +1565,16 @@ function equalTripleByPointsDiff([r1, r2, r3]) {
     r1.points === r2.points &&
     r2.points === r3.points &&
     r1.cupsDiff === r2.cupsDiff &&
-    r2.cupsDiff === r3.cupsDiff
+    r2.cupsDiff === r3.cupsDiff &&
+    r1.cupsFor === r2.cupsFor &&
+    r2.cupsFor === r3.cupsFor
   )
 }
 
 function detectGroupTiebreak(groupName, standings) {
+  // Shoot-Off bereits aufgelöst → kein Tiebreak mehr
+  if (lastCupElimState.value[groupName]?.done) return null
+
   const meta = lastGroupsMeta.value.find(g => g.name === groupName)
   const size = meta?.teams?.length || standings.length
 
@@ -1215,32 +1583,21 @@ function detectGroupTiebreak(groupName, standings) {
     if (equalTripleByPointsDiff([t1, t2, t3])) {
       return {
         group: groupName,
-        type: 'RAGE_CAGE_3',
-        teams: [t1.name, t2.name, t3.name]
+        type: 'LAST_CUP_ELIM',
+        teams: [t1.name, t2.name, t3.name],
+        fixedFirst: null
       }
     }
   }
 
   if (size === 4 && standings.length >= 4) {
     const [t1, t2, t3, t4] = standings
-    const triple = [t2, t3, t4]
-    if (equalTripleByPointsDiff(triple)) {
-      const pairs = [
-        { team1: t2.name, team2: t3.name },
-        { team1: t2.name, team2: t4.name },
-        { team1: t3.name, team2: t4.name }
-      ].map((m, i) => ({
-        ...m,
-        cups_per_game: 3,
-        match_id: `${groupName}-TB-${i + 1}`
-      }))
+    if (equalTripleByPointsDiff([t2, t3, t4])) {
       return {
         group: groupName,
-        type: 'REMATCH_3_OF_4',
-        fixed_first: t1.name,
-        trio: triple.map(x => x.name),
-        rematch_matches: pairs,
-        note: 'Plätze 2–4 exakt gleich: Mini-Rematch (3 Becher).'
+        type: 'LAST_CUP_ELIM',
+        teams: [t2.name, t3.name, t4.name],
+        fixedFirst: t1.name
       }
     }
   }
@@ -1263,12 +1620,117 @@ function clearGroupTiebreak(groupName) {
   perGroupTiebreak.value = next
 }
 
+/* ---------- Last Cup Shoot-Off ---------- */
+
+function startLastCupElim(groupName) {
+  const plan = perGroupTiebreak.value[groupName]
+  if (!plan || plan.type !== 'LAST_CUP_ELIM') return
+  lastCupElimState.value = {
+    ...lastCupElimState.value,
+    [groupName]: {
+      roundCount: 1,
+      remaining: [...plan.teams],
+      currentRound: Object.fromEntries(plan.teams.map(t => [t, null])),
+      topPlaced: [],
+      bottomPlaced: [],
+      done: false,
+      finalRanking: [],
+      fixedFirst: plan.fixedFirst ?? null
+    }
+  }
+}
+
+function setElimResult(groupName, teamName, result) {
+  const state = lastCupElimState.value[groupName]
+  if (!state || state.done) return
+  lastCupElimState.value = {
+    ...lastCupElimState.value,
+    [groupName]: { ...state, currentRound: { ...state.currentRound, [teamName]: result } }
+  }
+}
+
+function isElimRoundComplete(groupName) {
+  const state = lastCupElimState.value[groupName]
+  if (!state || state.done) return false
+  return state.remaining.every(t => state.currentRound[t] !== null)
+}
+
+function evaluateElimRound(groupName) {
+  const state = lastCupElimState.value[groupName]
+  if (!state || state.done || !isElimRoundComplete(groupName)) return
+
+  const hitters = state.remaining.filter(t => state.currentRound[t] === 'hit')
+  const missers = state.remaining.filter(t => state.currentRound[t] === 'miss')
+
+  // Alle gleich → neue Runde, kein Ausscheiden
+  if (hitters.length === 0 || missers.length === 0) {
+    lastCupElimState.value = {
+      ...lastCupElimState.value,
+      [groupName]: {
+        ...state,
+        roundCount: state.roundCount + 1,
+        currentRound: Object.fromEntries(state.remaining.map(t => [t, null]))
+      }
+    }
+    return
+  }
+
+  let newTopPlaced = [...state.topPlaced]
+  let newBottomPlaced = [...state.bottomPlaced]
+  let newRemaining
+
+  if (hitters.length === 1) {
+    // Genau 1 Treffer → der Treffende belegt den besten noch offenen Platz
+    newTopPlaced = [...newTopPlaced, hitters[0]]
+    newRemaining = missers
+  } else {
+    // Genau 1 Fehler → der Fehlende belegt den schlechtesten noch offenen Platz
+    newBottomPlaced = [...newBottomPlaced, missers[0]]
+    newRemaining = hitters
+  }
+
+  const done = newRemaining.length <= 1
+  const finalRanking = done
+    ? [...newTopPlaced, ...newRemaining, ...newBottomPlaced.slice().reverse()]
+    : []
+
+  // Wenn fertig: Tiebreak-Plan entfernen (detectGroupTiebreak gibt jetzt null zurück)
+  if (done) {
+    const next = { ...perGroupTiebreak.value }
+    delete next[groupName]
+    perGroupTiebreak.value = next
+  }
+
+  lastCupElimState.value = {
+    ...lastCupElimState.value,
+    [groupName]: {
+      ...state,
+      topPlaced: newTopPlaced,
+      bottomPlaced: newBottomPlaced,
+      remaining: newRemaining,
+      roundCount: state.roundCount + 1,
+      currentRound: done ? {} : Object.fromEntries(newRemaining.map(t => [t, null])),
+      done,
+      finalRanking
+    }
+  }
+}
+
+function resetElim(groupName) {
+  const next = { ...lastCupElimState.value }
+  delete next[groupName]
+  lastCupElimState.value = next
+  recomputePerGroupTiebreak(groupName)
+}
+
 function markTiebreak(groupName, idxInSortedTable) {
   const tb = perGroupTiebreak.value[groupName]
   if (!tb) return false
-  if (tb.type === 'RAGE_CAGE_3') return true
-  if (tb.type === 'REMATCH_3_OF_4')
-    return idxInSortedTable >= 1 && idxInSortedTable <= 3
+  if (tb.type === 'LAST_CUP_ELIM') {
+    const tiedSet = new Set(tb.teams)
+    const rows = getFinalStandings(groupName)
+    return tiedSet.has(rows[idxInSortedTable]?.name)
+  }
   return false
 }
 
@@ -1278,6 +1740,13 @@ function formatTeamName(name, maxChars = 5) {
   if (s.length <= maxChars) return s
   if (maxChars <= 3) return s.slice(0, maxChars)
   return s.slice(0, maxChars - 1) + '…'
+}
+
+function formatPlayers(teamName) {
+  const p = props.teamPlayers[teamName]
+  if (!p) return ''
+  if (p.player1 && p.player2) return `${p.player1} & ${p.player2}`
+  return p.player1 || p.player2 || ''
 }
 </script>
 
