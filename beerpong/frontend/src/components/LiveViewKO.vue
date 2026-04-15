@@ -1,71 +1,93 @@
 <template>
   <div class="lvko-shell">
 
-    <!-- Bracket area — fills all remaining space -->
-    <div class="lvko-main">
-      <div class="lvko-phase-bar">
-        <span class="badge" :class="phase === 'ko_preview' ? 'bg-warning text-dark lvko-phase-badge' : 'bg-danger lvko-phase-badge'">
-          {{ phase === 'ko_preview' ? '🏁 K.O.-Vorschau' : '🏆 K.O.-Phase' }}
-        </span>
-        <span class="lvko-tournament-name">{{ tournament?.name }}</span>
-        <span class="badge ms-auto" :class="wsConnected ? 'bg-success' : 'bg-secondary'">
-          {{ wsConnected ? '● Live' : '○ Offline' }}
-        </span>
-      </div>
+    <!-- Shared phase bar -->
+    <div class="lvko-phase-bar">
+      <span class="badge" :class="phase === 'ko_preview' ? 'bg-warning text-dark lvko-phase-badge' : 'bg-danger lvko-phase-badge'">
+        {{ phase === 'ko_preview' ? '🏁 K.O.-Vorschau' : '🏆 K.O.-Phase' }}
+      </span>
+      <span class="lvko-tournament-name">{{ tournament?.name }}</span>
+      <span class="badge ms-auto" :class="wsConnected ? 'bg-success' : 'bg-secondary'">
+        {{ wsConnected ? '● Live' : '○ Offline' }}
+      </span>
+    </div>
 
-      <div class="lvko-bracket-scroll">
-        <KnockoutBracket
-          v-if="phase === 'ko' && koRounds.length"
-          :rounds="koRounds"
-          :readonly="true"
-          :interactive="false"
-          :active-match-ids="activeMatchIds"
-        />
-        <div v-else-if="phase === 'ko_preview' && previewSlots.length" class="lvko-preview-wrap">
-          <KnockoutPreviewTree
-            :slots="previewSlots"
-            :ko-size="previewKoSize"
-          />
+    <!-- KO Preview: wide bracket + narrow QR side -->
+    <template v-if="phase === 'ko_preview'">
+      <div class="lvko-preview-layout">
+        <div class="lvko-bracket-scroll lvko-bracket-main">
+          <div v-if="previewSlots.length" class="lvko-preview-wrap">
+            <KnockoutPreviewTree :slots="previewSlots" :ko-size="previewKoSize" :constrain-to-height="true" />
+          </div>
+          <div v-else class="lvko-empty">
+            <div class="spinner-border text-secondary mb-3" role="status"></div>
+            <div class="text-secondary">K.O.-Vorschau wird geladen…</div>
+          </div>
         </div>
-        <div v-else class="lvko-empty">
-          <div class="spinner-border text-secondary mb-3" role="status"></div>
-          <div class="text-secondary">
-            {{ phase === 'ko_preview' ? 'K.O.-Vorschau wird geladen…' : 'K.O.-Bracket wird geladen…' }}
+        <div class="lvko-side">
+          <div class="card bg-black border-secondary lvko-qr-card text-center">
+            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-2">
+              <div class="text-secondary small text-uppercase" style="letter-spacing:.1em">Mobile Ansicht</div>
+              <canvas ref="qrCanvas" class="lvko-qr-canvas"></canvas>
+              <small class="text-secondary lvko-qr-url">{{ mobileUrl }}</small>
+            </div>
+          </div>
+          <div class="text-center mt-2">
+            <button class="btn btn-outline-secondary btn-sm" @click="$emit('deselect')">Anderes Turnier</button>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <!-- Right column: live matches + QR code + deselect -->
-    <div class="lvko-side">
-
-      <!-- Live KO matches (compact) -->
-      <div v-if="liveMatchCards.length" class="lvko-live-section">
-        <div class="lvko-live-label">🔴 Live</div>
-        <div class="lvko-live-scroll">
+    <!-- KO Phase: live tables prominent at top, bracket + QR below -->
+    <template v-else-if="phase === 'ko'">
+      <!-- Live tables row -->
+      <div class="lvko-tables-row">
+        <template v-if="liveMatchCards.length">
           <LiveTable3D
             v-for="(m, i) in liveMatchCards"
             :key="m.id ?? i"
             :match="m"
             :cups-per-game="cupsPerGame"
             :table-label="`Tisch ${m.table_no} • ${m.round_name}`"
-            compact show-score beam
+            show-score beam
           />
+        </template>
+        <div v-else class="lvko-tables-empty text-secondary small">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+          Warte auf Spiele…
         </div>
       </div>
 
-      <!-- QR code -->
-      <div class="card bg-black border-secondary lvko-qr-card text-center">
-        <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-2">
-          <div class="text-secondary small text-uppercase" style="letter-spacing:.1em">Mobile Ansicht</div>
-          <canvas ref="qrCanvas" class="lvko-qr-canvas"></canvas>
-          <small class="text-secondary lvko-qr-url">{{ mobileUrl }}</small>
+      <!-- Bottom row: bracket + QR -->
+      <div class="lvko-bottom-row">
+        <div class="lvko-bracket-scroll lvko-bracket-bottom">
+          <div v-if="koRounds.length" class="lvko-results-wrap">
+            <KnockoutResultsTree
+              :rounds="koRounds"
+              :active-match-ids="activeMatchIds"
+              :constrain-to-height="true"
+            />
+          </div>
+          <div v-else class="lvko-empty">
+            <div class="spinner-border text-secondary mb-3" role="status"></div>
+            <div class="text-secondary">K.O.-Bracket wird geladen…</div>
+          </div>
+        </div>
+        <div class="lvko-side">
+          <div class="card bg-black border-secondary lvko-qr-card text-center">
+            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-2">
+              <div class="text-secondary small text-uppercase" style="letter-spacing:.1em">Mobile Ansicht</div>
+              <canvas ref="qrCanvas" class="lvko-qr-canvas"></canvas>
+              <small class="text-secondary lvko-qr-url">{{ mobileUrl }}</small>
+            </div>
+          </div>
+          <div class="text-center mt-2">
+            <button class="btn btn-outline-secondary btn-sm" @click="$emit('deselect')">Anderes Turnier</button>
+          </div>
         </div>
       </div>
-      <div class="text-center mt-2">
-        <button class="btn btn-outline-secondary btn-sm" @click="$emit('deselect')">Anderes Turnier</button>
-      </div>
-    </div>
+    </template>
 
   </div>
 </template>
@@ -74,10 +96,11 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useTournamentStore } from '../stores/tournament.js'
-import KnockoutBracket from './KnockoutBracket.vue'
 import KnockoutPreviewTree from './KnockoutPreviewTree.vue'
+import KnockoutResultsTree from './KnockoutResultsTree.vue'
 import LiveTable3D from './LiveTable3D.vue'
 import { getKOActiveMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
+import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
 defineEmits(['deselect'])
 
@@ -86,15 +109,34 @@ const store = useTournamentStore()
 const tournament  = computed(() => store.tournament)
 const phase       = computed(() => tournament.value?.current_phase ?? tournament.value?.currentPhase ?? 'group')
 const wsConnected = computed(() => store.wsConnected)
-const koRounds    = computed(() => store.koPhase?.rounds ?? [])
+const koRounds    = computed(() => normalizeKoRoundsForDisplay(store.koPhase?.rounds ?? []))
 const koPreview   = computed(() => store.koPreview ?? {})
 const groupStandings = computed(() => store.groupStandings ?? {})
 const playin = computed(() => store.playin ?? {})
 const tableCount  = computed(() => Number(tournament.value?.tableCount ?? tournament.value?.table_count ?? 2) || 2)
 const cupsPerGame = computed(() => Number(tournament.value?.cupsPerGame ?? tournament.value?.cups_per_game ?? 6) || 6)
+const activeKoMainRoundIndex = computed(() =>
+  store.koPhase?.active_main_round_index ?? store.koPhase?.activeMainRoundIndex ?? null
+)
 
-const activeKOMatches = computed(() => getKOActiveMatches(koRounds.value, tableCount.value))
+const activeKOMatches = computed(() =>
+  getKOActiveMatches(koRounds.value, tableCount.value, activeKoMainRoundIndex.value)
+)
 const activeMatchIds  = computed(() => new Set(activeKOMatches.value.map(m => m.id).filter(id => id != null)))
+function normalizeKoLiveState(rawState, cupsTarget, hitsTaken = 0, isOvertime = false) {
+  if (Array.isArray(rawState) && rawState.length === cupsTarget) {
+    return [...rawState]
+  }
+  if (isOvertime && Array.isArray(rawState) && rawState.length === 3 && cupsTarget > 3) {
+    const expanded = Array(cupsTarget).fill(false)
+    const indices = cupsTarget >= 10 ? [9, 7, 8] : [5, 3, 4]
+    indices.forEach((targetIdx, idx) => {
+      if (targetIdx < cupsTarget) expanded[targetIdx] = !!rawState[idx]
+    })
+    return expanded
+  }
+  return makeCupsStateFromCount(hitsTaken, cupsTarget)
+}
 const previewSlots    = computed(() => {
   const persisted = Array.isArray(koPreview.value?.slots) ? koPreview.value.slots : []
   if (persisted.length > 0) return persisted
@@ -149,8 +191,8 @@ const liveMatchCards  = computed(() =>
   activeKOMatches.value.map(m => ({
     ...m,
     group_name: m.round_name || 'KO-Phase',
-    cups_state_team1: makeCupsStateFromCount(m.cups_team1, cupsPerGame.value),
-    cups_state_team2: makeCupsStateFromCount(m.cups_team2, cupsPerGame.value),
+    cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsPerGame.value, m.cups_team2, !!m.is_overtime),
+    cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsPerGame.value, m.cups_team1, !!m.is_overtime),
   }))
 )
 
@@ -210,21 +252,13 @@ onUnmounted(() => {
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  gap: clamp(10px, 1.2vw, 18px);
-  padding: clamp(10px, 1.2vh, 16px) clamp(12px, 1.4vw, 20px);
+  flex-direction: column;
+  gap: clamp(8px, 1vh, 14px);
+  padding: clamp(8px, 1vh, 14px) clamp(12px, 1.4vw, 20px);
   overflow: hidden;
 }
 
-/* ── Main bracket column ─────────────────────────────────────────────────── */
-.lvko-main {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
+/* ── Phase bar (shared) ──────────────────────────────────────────────────── */
 .lvko-phase-bar {
   flex: 0 0 auto;
   display: flex;
@@ -248,23 +282,84 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.lvko-bracket-scroll {
+/* ── KO Preview layout: wide bracket + narrow QR ────────────────────────── */
+.lvko-preview-layout {
   flex: 1 1 0;
   min-height: 0;
+  display: flex;
+  gap: clamp(10px, 1.2vw, 18px);
+}
+
+/* ── KO Phase: tables at top (prominent) ────────────────────────────────── */
+.lvko-tables-row {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  gap: clamp(10px, 1.5vw, 20px);
+  overflow-x: auto;
+  padding-bottom: 4px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+/* Compact the 3D tables in the live strip so the bracket gets more space */
+.lvko-tables-row :deep(.beer-table--beam) {
+  --tw:    clamp(120px, 10vw, 175px);
+  --th:    clamp(175px, 20vh, 275px);
+  --cs:    clamp(13px,  1.2vw, 20px);
+  --cg:    clamp(4px,   0.38vw, 6px);
+  --nf:    clamp(0.72rem, 0.95vw, 1.05rem);
+  --labelf: clamp(0.6rem, 0.72vw, 0.8rem);
+}
+
+.lvko-tables-empty {
+  display: flex;
+  align-items: center;
+  padding: 1rem 0;
+}
+
+/* ── Bottom row: bracket + QR ───────────────────────────────────────────── */
+.lvko-bottom-row {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  gap: clamp(10px, 1.2vw, 18px);
+}
+
+/* ── Bracket scroll (shared, different flex in each context) ─────────────── */
+.lvko-bracket-scroll {
   overflow: auto;
   padding-bottom: 4px;
 }
 
-.lvko-preview-wrap {
-  min-width: max-content;
-  padding: 0 6px 8px;
+.lvko-bracket-main {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
 }
 
-.lvko-preview-wrap :deep(.bracket-tree) {
-  --bracket-side-width: 170px !important;
-  --bracket-center-width: 190px !important;
-  --bracket-gap: 0.65rem !important;
-  --bracket-padding: 0.8rem !important;
+.lvko-bracket-bottom {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Fill the scroll container — zoom inside the bracket handles sizing */
+.lvko-preview-wrap,
+.lvko-results-wrap {
+  width: 100%;
+  height: 100%;
+  padding: 0 6px 8px;
+  box-sizing: border-box;
+}
+
+/* Propagate container height into the bracket component so it can
+   measure available height and scale to fit both axes */
+.lvko-results-wrap :deep(.bracket-tree),
+.lvko-results-wrap :deep(.bracket-tree__scroll),
+.lvko-preview-wrap :deep(.bracket-tree),
+.lvko-preview-wrap :deep(.bracket-tree__scroll) {
+  height: 100%;
 }
 
 .lvko-empty {
@@ -276,41 +371,17 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-/* ── Side column: live matches + QR + deselect button ───────────────────── */
+/* ── Side column: QR + deselect button ──────────────────────────────────── */
 .lvko-side {
-  flex: 0 0 clamp(180px, 17vw, 260px);
+  flex: 0 0 clamp(120px, 10vw, 175px);
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.lvko-live-section {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.lvko-live-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #dc3545;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.lvko-live-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
-  max-height: 55vh;
-}
-
 .lvko-qr-card {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 0 auto;
   overflow: hidden;
   background: linear-gradient(180deg, rgba(4,4,4,0.98) 0%, rgba(14,18,26,0.98) 100%) !important;
   border-color: rgba(255,255,255,0.16) !important;
@@ -318,7 +389,7 @@ onUnmounted(() => {
 
 .lvko-qr-canvas {
   width: 100%;
-  max-width: min(20vh, 13vw, 180px);
+  max-width: min(16vh, 9vw, 150px);
   aspect-ratio: 1;
 }
 

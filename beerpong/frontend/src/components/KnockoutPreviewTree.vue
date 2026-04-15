@@ -4,6 +4,7 @@
     :bracket-size="koSize"
     :show-third-place="true"
     :compact="true"
+    :constrain-to-height="constrainToHeight"
   />
 </template>
 
@@ -13,5 +14,6 @@ import TournamentBracketTree from './TournamentBracketTree.vue'
 defineProps({
   slots: { type: Array, default: () => [] },
   koSize: { type: Number, default: null },
+  constrainToHeight: { type: Boolean, default: false },
 })
 </script>

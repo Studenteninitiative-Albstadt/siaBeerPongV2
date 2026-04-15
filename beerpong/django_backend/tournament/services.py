@@ -89,6 +89,124 @@ def round_robin(team_names: List[str]) -> List[Dict[str, Any]]:
     return matches
 
 
+KO_ROUND_NAME_ORDER = {
+    'runde der 256': 0,
+    'runde der 128': 1,
+    'runde der 64': 2,
+    'runde der 32': 3,
+    'sechzehntelfinale': 4,
+    'achtelfinale': 5,
+    'viertelfinale': 6,
+    'halbfinale': 7,
+    'finale': 8,
+    'spiel um platz 3': 99,
+}
+
+
+def _ko_round_sort_key(round_data: Dict[str, Any]) -> tuple:
+    """
+    KO rounds must be ordered by tournament progression, not alphabetically.
+    LiveView/MobileView consume get_full_state() directly, so a lexical sort on
+    `ko_round` would place rounds like "Finale" before "Halbfinale".
+    """
+    bracket_type = str(round_data.get('bracket_type') or 'main').strip().lower()
+    round_name = str(round_data.get('round_name') or '').strip()
+    normalized_name = round_name.lower()
+    match_count = len(round_data.get('matches') or [])
+
+    bracket_rank = 1 if bracket_type == 'placement' else 0
+    round_rank = KO_ROUND_NAME_ORDER.get(normalized_name, 10_000)
+
+    return (
+        bracket_rank,
+        -match_count,
+        round_rank,
+        round_name,
+    )
+
+
+def sort_ko_rounds(rounds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(rounds, key=_ko_round_sort_key)
+
+
+def _ko_match_in_progress(match_data: Dict[str, Any]) -> bool:
+    if int(match_data.get('cups_team1') or 0) > 0 or int(match_data.get('cups_team2') or 0) > 0:
+        return True
+    if bool(match_data.get('is_overtime')):
+        return True
+    state1 = match_data.get('cups_state_team1') or []
+    state2 = match_data.get('cups_state_team2') or []
+    if isinstance(state1, list) and any(c is False for c in state1):
+        return True
+    if isinstance(state2, list) and any(c is False for c in state2):
+        return True
+    return False
+
+
+def is_ko_round_complete(round_data: Dict[str, Any]) -> bool:
+    matches = round_data.get('matches') or []
+    if not matches:
+        return False
+    return all(
+        (not m.get('team1')) or (not m.get('team2')) or bool(m.get('winner'))
+        for m in matches
+    )
+
+
+def derive_active_ko_main_round_index(
+    rounds: List[Dict[str, Any]],
+    explicit_index: Any = None,
+) -> int:
+    main_rounds = [r for r in sort_ko_rounds(rounds) if (r.get('bracket_type') or 'main') != 'placement']
+    if not main_rounds:
+        return 0
+
+    try:
+        idx = int(explicit_index)
+    except (TypeError, ValueError):
+        idx = None
+    if idx is not None and 0 <= idx < len(main_rounds):
+        return idx
+
+    for idx, round_data in enumerate(main_rounds):
+        matches = round_data.get('matches') or []
+        if any(
+            m.get('team1') and m.get('team2') and not m.get('winner') and _ko_match_in_progress(m)
+            for m in matches
+        ):
+            return idx
+
+    for idx, round_data in enumerate(main_rounds):
+        matches = round_data.get('matches') or []
+        if any(m.get('team1') and m.get('team2') and not m.get('winner') for m in matches):
+            return idx
+
+    return max(0, len(main_rounds) - 1)
+
+
+def get_ko_control_payload(tournament: Tournament) -> Dict[str, Any]:
+    entry = Tiebreak.objects.filter(
+        tournament=tournament,
+        mode='ko_control',
+        group_name='__ko_control__',
+    ).order_by('-id').first()
+    return entry.payload if entry and isinstance(entry.payload, dict) else {}
+
+
+def set_ko_control_payload(tournament: Tournament, payload: Dict[str, Any]) -> Dict[str, Any]:
+    control = payload if isinstance(payload, dict) else {}
+    Tiebreak.objects.update_or_create(
+        tournament=tournament,
+        mode='ko_control',
+        group_name='__ko_control__',
+        defaults={
+            'payload': control,
+            'resolved': True,
+        },
+    )
+    return control
+
+
 # ── Group generation ────────────────────────────────────────────────────────
 
 def generate_groups(tournament: Tournament, team_names: List[str]) -> Dict[str, Any]:
@@ -270,8 +388,13 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             'team1': m.team1.name if m.team1 else None,
             'team2': m.team2.name if m.team2 else None,
             'winner': m.winner.name if m.winner else None,
+            'status': m.status,
+            'table_no': int(m.table.name.replace('Tisch ', '')) if m.table and str(m.table.name).startswith('Tisch ') else None,
             'cups_team1': m.cups_team1,
             'cups_team2': m.cups_team2,
+            'cups_state_team1': m.cups_state_team1,
+            'cups_state_team2': m.cups_state_team2,
+            'is_overtime': m.is_overtime,
         })
 
     # Play-in matches
@@ -282,6 +405,12 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
         tournament=tournament, mode='ko_preview'
     ).order_by('-id').first()
     ko_preview = ko_preview_entry.payload if ko_preview_entry and isinstance(ko_preview_entry.payload, dict) else {}
+    ko_rounds = sort_ko_rounds(list(rounds_dict.values()))
+    ko_control = get_ko_control_payload(tournament)
+    active_ko_main_round_index = derive_active_ko_main_round_index(
+        ko_rounds,
+        ko_control.get('active_main_round_index', ko_control.get('activeMainRoundIndex')),
+    )
 
     # Top Players (based on hits in THIS tournament)
     from django.db.models import Count
@@ -289,7 +418,7 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
         cup_hits__match__tournament=tournament
     ).annotate(
         tournament_hits=Count('cup_hits')
-    ).order_by('-tournament_hits')[:10]
+    ).order_by('-tournament_hits', 'name')
 
     top_players = [
         {'name': p.name, 'hits': p.tournament_hits}
@@ -338,5 +467,9 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             ]
         },
         'ko_preview': ko_preview,
-        'ko_phase': {'rounds': list(rounds_dict.values())},
+        'ko_phase': {
+            'rounds': ko_rounds,
+            'active_main_round_index': active_ko_main_round_index,
+            'activeMainRoundIndex': active_ko_main_round_index,
+        },
     }

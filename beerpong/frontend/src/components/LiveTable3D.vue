@@ -219,7 +219,7 @@ function buildPyramid(arr, is10) {
   --tp:    22px;
   --cs:    32px;    /* cup size */
   --cg:    9px;     /* cup gap  */
-  --tilt:  20deg;
+  --tilt:  32deg;   /* Increased from 20deg for better perspective */
   --nf:    1.45rem;
   --gaptop:  0.9rem;
   --gapbot:  1rem;
@@ -237,6 +237,7 @@ function buildPyramid(arr, is10) {
   --tp:    11px;
   --cs:    20px;
   --cg:    6px;
+  --tilt:  25deg;
   --nf:    1.1rem;
   --gaptop:  0.65rem;
   --gapbot:  0.75rem;
@@ -245,7 +246,7 @@ function buildPyramid(arr, is10) {
 
 .beer-table--beam {
   --tw:    clamp(155px, 14vw, 235px);
-  --th:    clamp(270px, 33vh, 440px);
+  --th:    clamp(380px, 48vh, 600px); /* Significantly increased height */
   --cs:    clamp(20px, 1.75vw, 30px);
   --cg:    clamp(6px, 0.55vw, 10px);
   --nf:    clamp(1rem, 1.2vw, 1.35rem);
@@ -358,7 +359,7 @@ function buildPyramid(arr, is10) {
 
 /* ── Cup rows ────────────────────────────────────────────────────────────── */
 .beer-table__cups {
-  height: 44%;
+  height: 38%; /* Reduced from 44% to make the table look longer */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -559,84 +560,100 @@ function buildPyramid(arr, is10) {
   100% { transform: translate(0,                        0)                         scale(0.06); opacity: 0;   }
 }
 
-/* ── Splash burst — core + 7 droplets via box-shadow ───────────────────── */
-/* Core 2×bs; center placed at cup opening (~1.7 bs above cup center).
-   top = -(1.7*bs) - (0.5 * 2*bs) = -2.7*bs                               */
+/* ── Splash burst — small water crown, 11 tight droplets via box-shadow ──── */
+/* Core 0.6×bs; center at cup opening (~1.7×bs above cup center).
+   top = -(1.7×bs) - (0.5 × 0.6×bs) = -2.0×bs                             */
 .ball-overlay .splash-burst {
   position: absolute;
-  left: calc(var(--bs) * -1);
-  top:  calc(var(--bs) * -2.7);
-  width:  calc(var(--bs) * 2);
-  height: calc(var(--bs) * 2);
+  left: calc(var(--bs) * -0.3);
+  top:  calc(var(--bs) * -2.0);
+  width:  calc(var(--bs) * 0.6);
+  height: calc(var(--bs) * 0.6);
   border-radius: 50%;
-  background: rgba(215, 245, 255, 1);
+  background: rgba(210, 245, 255, 0.95);
   opacity: 0;
   pointer-events: none;
-  animation: splash-burst-anim 0.65s ease-out 0.80s forwards;
+  animation: splash-burst-anim 0.50s ease-out 0.80s forwards;
 }
 
 @keyframes splash-burst-anim {
   0% {
     opacity: 1;
+    transform: scale(1.1);
     box-shadow:
-       0px -20px  0 7px rgba(200,240,255,1.00),
-     -16px -16px  0 6px rgba(200,240,255,0.95),
-      16px -16px  0 6px rgba(200,240,255,0.95),
-     -28px   0px  0 5px rgba(180,230,255,0.88),
-      28px   0px  0 5px rgba(180,230,255,0.88),
-     -11px  17px  0 4px rgba(180,230,255,0.72),
-      11px  17px  0 4px rgba(180,230,255,0.72);
+       0px  -9px  0 2px rgba(200,242,255,1.00),   /* straight up */
+      -6px  -8px  0 2px rgba(200,242,255,0.92),   /* upper-left */
+       6px  -8px  0 2px rgba(200,242,255,0.92),   /* upper-right */
+     -10px  -3px  0 1px rgba(185,232,255,0.85),   /* left */
+      10px  -3px  0 1px rgba(185,232,255,0.85),   /* right */
+      -3px -11px  0 1px rgba(200,242,255,0.82),   /* steep-left */
+       3px -11px  0 1px rgba(200,242,255,0.82),   /* steep-right */
+      -8px  -6px  0 1px rgba(200,242,255,0.68),   /* mid-left */
+       8px  -6px  0 1px rgba(200,242,255,0.68),   /* mid-right */
+      -2px   4px  0 1px rgba(185,232,255,0.45),   /* slight-down-left */
+       2px   4px  0 1px rgba(185,232,255,0.45);   /* slight-down-right */
   }
-  40% {
-    opacity: 0.80;
+  42% {
+    opacity: 0.72;
+    transform: scale(0.75);
     box-shadow:
-       0px -56px  0 4px rgba(180,230,255,0.65),
-     -44px -50px  0 3px rgba(180,230,255,0.60),
-      44px -50px  0 3px rgba(180,230,255,0.60),
-     -70px  -8px  0 3px rgba(180,230,255,0.48),
-      70px  -8px  0 3px rgba(180,230,255,0.48),
-     -28px  42px  0 2px rgba(180,230,255,0.34),
-      28px  42px  0 2px rgba(180,230,255,0.34);
+       0px -20px  0 1px rgba(180,228,255,0.58),
+     -15px -18px  0 1px rgba(180,228,255,0.52),
+      15px -18px  0 1px rgba(180,228,255,0.52),
+     -22px  -6px  0 1px rgba(175,222,255,0.44),
+      22px  -6px  0 1px rgba(175,222,255,0.44),
+      -6px -22px  0 0px rgba(180,228,255,0.40),
+       6px -22px  0 0px rgba(180,228,255,0.40),
+     -18px -14px  0 0px rgba(180,228,255,0.28),
+      18px -14px  0 0px rgba(180,228,255,0.28),
+      -4px   9px  0 0px rgba(175,222,255,0.18),
+       4px   9px  0 0px rgba(175,222,255,0.18);
   }
   100% {
     opacity: 0;
+    transform: scale(0.45);
     box-shadow:
-       0px  -96px  0 0px rgba(180,230,255,0),
-     -72px  -86px  0 0px rgba(180,230,255,0),
-      72px  -86px  0 0px rgba(180,230,255,0),
-    -110px  -14px  0 0px rgba(180,230,255,0),
-     110px  -14px  0 0px rgba(180,230,255,0),
-     -46px   72px  0 0px rgba(180,230,255,0),
-      46px   72px  0 0px rgba(180,230,255,0);
+       0px -30px  0 0px rgba(180,228,255,0),
+     -22px -26px  0 0px rgba(180,228,255,0),
+      22px -26px  0 0px rgba(180,228,255,0),
+     -32px  -9px  0 0px rgba(175,222,255,0),
+      32px  -9px  0 0px rgba(175,222,255,0),
+      -9px -32px  0 0px rgba(180,228,255,0),
+       9px -32px  0 0px rgba(180,228,255,0),
+     -26px -20px  0 0px rgba(180,228,255,0),
+      26px -20px  0 0px rgba(180,228,255,0),
+      -6px  14px  0 0px rgba(175,222,255,0),
+       6px  14px  0 0px rgba(175,222,255,0);
   }
 }
 
-/* ── Ripple ring expanding from cup opening ─────────────────────────────── */
+/* ── Ripple ring — thin, shallow, compact ───────────────────────────────── */
+/* center at ~-1.4×bs above cup center: top = -1.4×bs - (1.2×bs / 2) = -2.0×bs */
 .ball-overlay .splash-ring {
   position: absolute;
-  left:   calc(var(--bs) * -1.4);
-  top:    calc(var(--bs) * -2.2);
-  width:  calc(var(--bs) * 2.8);
-  height: calc(var(--bs) * 1.6);
-  border: 3px solid rgba(200, 240, 255, 0.95);
+  left:   calc(var(--bs) * -1.2);
+  top:    calc(var(--bs) * -2.0);
+  width:  calc(var(--bs) * 2.4);
+  height: calc(var(--bs) * 1.2);
+  border: 1.5px solid rgba(200, 240, 255, 0.85);
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
-  animation: splash-ring-anim 0.60s ease-out 0.80s forwards;
+  animation: splash-ring-anim 0.52s ease-out 0.80s forwards;
 }
 
 .ball-overlay .splash-ring::after {
   content: '';
   position: absolute;
-  inset: -4px;
-  border: 2px solid rgba(200, 240, 255, 0.55);
+  inset: -3px;
+  border: 1px solid rgba(200, 240, 255, 0.45);
   border-radius: 50%;
-  animation: splash-ring-anim 0.65s ease-out 0.88s forwards;
+  animation: splash-ring-anim 0.60s ease-out 0.87s forwards;
 }
 
 @keyframes splash-ring-anim {
-  0%   { transform: scale(0.3); opacity: 1.0; }
-  30%  {                        opacity: 0.85; }
-  100% { transform: scale(3.2); opacity: 0; }
+  0%   { transform: scale(0.35); opacity: 1.0; }
+  25%  {                         opacity: 0.75; }
+  100% { transform: scale(1.75); opacity: 0; }
 }
 </style>

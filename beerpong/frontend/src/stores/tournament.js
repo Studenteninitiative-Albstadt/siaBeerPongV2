@@ -21,14 +21,14 @@ export const useTournamentStore = defineStore('tournament', () => {
     if (data.tournament)      tournament.value     = data.tournament
     else if (data.id && data.name) tournament.value = data // Fallback: data IS the tournament
 
-    if (data.teams)           teams.value          = data.teams
-    if (data.team_players)    teamPlayers.value    = data.team_players
-    if (data.top_players)     topPlayers.value     = data.top_players
-    if (data.group_phase)     groupPhase.value     = data.group_phase
-    if (data.group_standings) groupStandings.value = data.group_standings
-    if (data.playin)          playin.value         = data.playin
-    if (data.ko_preview)      koPreview.value      = data.ko_preview
-    if (data.ko_phase)        koPhase.value        = data.ko_phase
+    if ('teams' in data)           teams.value          = data.teams || []
+    if ('team_players' in data)    teamPlayers.value    = data.team_players || {}
+    if ('top_players' in data)     topPlayers.value     = data.top_players || []
+    if ('group_phase' in data)     groupPhase.value     = data.group_phase || {}
+    if ('group_standings' in data) groupStandings.value = data.group_standings || {}
+    if ('playin' in data)          playin.value         = data.playin || {}
+    if ('ko_preview' in data)      koPreview.value      = data.ko_preview || {}
+    if ('ko_phase' in data)        koPhase.value        = data.ko_phase || { rounds: [] }
 
     if (data.match) {
       const m = data.match
@@ -60,6 +60,10 @@ export const useTournamentStore = defineStore('tournament', () => {
 
   async function load(id) {
     _apply(await api.tournaments.loadAllData(id))
+  }
+
+  function applyState(data) {
+    _apply(data || {})
   }
 
   async function create(data) {
@@ -108,7 +112,7 @@ export const useTournamentStore = defineStore('tournament', () => {
   return {
     tournament, teams, teamPlayers, topPlayers, groupPhase, groupStandings, playin, koPreview, koPhase,
     tournaments, ws, wsConnected,
-    fetchList, load, create, remove, connect, connectMobile,
+    fetchList, load, create, remove, connect, connectMobile, applyState,
     disconnect: _disconnect,
   }
 })

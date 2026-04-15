@@ -18,25 +18,39 @@
                 :key="match.id"
                 class="bracket-match"
               >
-                <div class="bracket-match__label">{{ match.label }}</div>
-                <div class="bracket-slot" :class="{ 'bracket-slot--bye': match.team1.isBye }">
+                <div class="bracket-match__head">
+                  <div class="bracket-match__label">{{ match.label }}</div>
+                  <span
+                    v-if="isActiveMatch(match.id)"
+                    class="bracket-live-pulse"
+                    aria-label="Live-Spiel"
+                  ></span>
+                </div>
+
+                <div
+                  class="bracket-slot"
+                  :class="slotClass(match.team1)"
+                >
                   <div class="bracket-slot__seed">{{ match.team1.sourceLabel }}</div>
-                  <div
-                    v-if="match.team1.teamName && match.team1.teamName !== match.team1.sourceLabel"
-                    class="bracket-slot__team"
-                  >
-                    {{ match.team1.teamName }}
+                  <div v-if="match.team1.metaLabel" class="bracket-slot__team">
+                    {{ match.team1.metaLabel }}
                   </div>
                 </div>
+
                 <div class="bracket-match__versus">vs</div>
-                <div class="bracket-slot" :class="{ 'bracket-slot--bye': match.team2.isBye }">
+
+                <div
+                  class="bracket-slot"
+                  :class="slotClass(match.team2)"
+                >
                   <div class="bracket-slot__seed">{{ match.team2.sourceLabel }}</div>
-                  <div
-                    v-if="match.team2.teamName && match.team2.teamName !== match.team2.sourceLabel"
-                    class="bracket-slot__team"
-                  >
-                    {{ match.team2.teamName }}
+                  <div v-if="match.team2.metaLabel" class="bracket-slot__team">
+                    {{ match.team2.metaLabel }}
                   </div>
+                </div>
+
+                <div v-if="match.winner" class="bracket-match__winner">
+                  🏆 {{ match.winner }}
                 </div>
               </article>
             </div>
@@ -49,25 +63,33 @@
               <span class="bracket-column__title bracket-column__title--final">{{ finalTitle }}</span>
             </header>
             <article v-if="finalMatch" class="bracket-match bracket-match--featured">
-              <div class="bracket-match__label">{{ finalMatch.label }}</div>
-              <div class="bracket-slot">
+              <div class="bracket-match__head">
+                <div class="bracket-match__label">{{ finalMatch.label }}</div>
+                <span
+                  v-if="isActiveMatch(finalMatch.id)"
+                  class="bracket-live-pulse"
+                  aria-label="Live-Spiel"
+                ></span>
+              </div>
+
+              <div class="bracket-slot" :class="slotClass(finalMatch.team1)">
                 <div class="bracket-slot__seed">{{ finalMatch.team1.sourceLabel }}</div>
-                <div
-                  v-if="finalMatch.team1.teamName && finalMatch.team1.teamName !== finalMatch.team1.sourceLabel"
-                  class="bracket-slot__team"
-                >
-                  {{ finalMatch.team1.teamName }}
+                <div v-if="finalMatch.team1.metaLabel" class="bracket-slot__team">
+                  {{ finalMatch.team1.metaLabel }}
                 </div>
               </div>
+
               <div class="bracket-match__versus">vs</div>
-              <div class="bracket-slot">
+
+              <div class="bracket-slot" :class="slotClass(finalMatch.team2)">
                 <div class="bracket-slot__seed">{{ finalMatch.team2.sourceLabel }}</div>
-                <div
-                  v-if="finalMatch.team2.teamName && finalMatch.team2.teamName !== finalMatch.team2.sourceLabel"
-                  class="bracket-slot__team"
-                >
-                  {{ finalMatch.team2.teamName }}
+                <div v-if="finalMatch.team2.metaLabel" class="bracket-slot__team">
+                  {{ finalMatch.team2.metaLabel }}
                 </div>
+              </div>
+
+              <div v-if="finalMatch.winner" class="bracket-match__winner bracket-match__winner--gold">
+                🏆 {{ finalMatch.winner }}
               </div>
             </article>
           </section>
@@ -80,13 +102,33 @@
               <span class="bracket-column__title">{{ thirdPlaceTitle }}</span>
             </header>
             <article class="bracket-match">
-              <div class="bracket-match__label">{{ thirdPlaceMatch.label }}</div>
-              <div class="bracket-slot">
-                <div class="bracket-slot__seed">{{ thirdPlaceMatch.team1.sourceLabel }}</div>
+              <div class="bracket-match__head">
+                <div class="bracket-match__label">{{ thirdPlaceMatch.label }}</div>
+                <span
+                  v-if="isActiveMatch(thirdPlaceMatch.id)"
+                  class="bracket-live-pulse"
+                  aria-label="Live-Spiel"
+                ></span>
               </div>
+
+              <div class="bracket-slot" :class="slotClass(thirdPlaceMatch.team1)">
+                <div class="bracket-slot__seed">{{ thirdPlaceMatch.team1.sourceLabel }}</div>
+                <div v-if="thirdPlaceMatch.team1.metaLabel" class="bracket-slot__team">
+                  {{ thirdPlaceMatch.team1.metaLabel }}
+                </div>
+              </div>
+
               <div class="bracket-match__versus">vs</div>
-              <div class="bracket-slot">
+
+              <div class="bracket-slot" :class="slotClass(thirdPlaceMatch.team2)">
                 <div class="bracket-slot__seed">{{ thirdPlaceMatch.team2.sourceLabel }}</div>
+                <div v-if="thirdPlaceMatch.team2.metaLabel" class="bracket-slot__team">
+                  {{ thirdPlaceMatch.team2.metaLabel }}
+                </div>
+              </div>
+
+              <div v-if="thirdPlaceMatch.winner" class="bracket-match__winner">
+                🏆 {{ thirdPlaceMatch.winner }}
               </div>
             </article>
           </section>
@@ -108,25 +150,39 @@
                 :key="match.id"
                 class="bracket-match"
               >
-                <div class="bracket-match__label">{{ match.label }}</div>
-                <div class="bracket-slot" :class="{ 'bracket-slot--bye': match.team1.isBye }">
+                <div class="bracket-match__head">
+                  <div class="bracket-match__label">{{ match.label }}</div>
+                  <span
+                    v-if="isActiveMatch(match.id)"
+                    class="bracket-live-pulse"
+                    aria-label="Live-Spiel"
+                  ></span>
+                </div>
+
+                <div
+                  class="bracket-slot"
+                  :class="slotClass(match.team1)"
+                >
                   <div class="bracket-slot__seed">{{ match.team1.sourceLabel }}</div>
-                  <div
-                    v-if="match.team1.teamName && match.team1.teamName !== match.team1.sourceLabel"
-                    class="bracket-slot__team"
-                  >
-                    {{ match.team1.teamName }}
+                  <div v-if="match.team1.metaLabel" class="bracket-slot__team">
+                    {{ match.team1.metaLabel }}
                   </div>
                 </div>
+
                 <div class="bracket-match__versus">vs</div>
-                <div class="bracket-slot" :class="{ 'bracket-slot--bye': match.team2.isBye }">
+
+                <div
+                  class="bracket-slot"
+                  :class="slotClass(match.team2)"
+                >
                   <div class="bracket-slot__seed">{{ match.team2.sourceLabel }}</div>
-                  <div
-                    v-if="match.team2.teamName && match.team2.teamName !== match.team2.sourceLabel"
-                    class="bracket-slot__team"
-                  >
-                    {{ match.team2.teamName }}
+                  <div v-if="match.team2.metaLabel" class="bracket-slot__team">
+                    {{ match.team2.metaLabel }}
                   </div>
+                </div>
+
+                <div v-if="match.winner" class="bracket-match__winner">
+                  🏆 {{ match.winner }}
                 </div>
               </article>
             </div>
@@ -141,138 +197,58 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
 const props = defineProps({
-  slots: { type: Array, default: () => [] },
-  bracketSize: { type: Number, default: null },
-  compact: { type: Boolean, default: false },
-  showThirdPlace: { type: Boolean, default: true },
+  rounds: { type: Array, default: () => [] },
+  compact: { type: Boolean, default: true },
   finalTitle: { type: String, default: 'Finale' },
   thirdPlaceTitle: { type: String, default: 'Spiel um Platz 3' },
+  activeMatchIds: { type: Object, default: null },
   constrainToHeight: { type: Boolean, default: false },
 })
 
-const resolvedBracketSize = computed(() => {
-  const requestedSize = Math.max(
-    2,
-    Number(props.bracketSize) || 0,
-    props.slots.length || 0
-  )
-  return nextPowerOfTwo(requestedSize)
-})
+const mainRounds = computed(() =>
+  (props.rounds || []).filter(round => round?.bracket_type !== 'placement')
+)
 
-const normalizedSlots = computed(() => {
-  const base = (props.slots || []).map((slot, idx) => ({
-    id: slot.id ?? `slot-${idx}`,
-    sourceLabel: slot.sourceLabel || slot.label || slot.teamName || `Slot ${idx + 1}`,
-    teamName: slot.teamName || slot.team || '',
-    isBye: !!slot.isBye,
-  }))
-
-  while (base.length < resolvedBracketSize.value) {
-    base.push({
-      id: `bye-${base.length}`,
-      sourceLabel: 'Freilos',
-      teamName: '',
-      isBye: true,
-    })
-  }
-
-  return base.slice(0, resolvedBracketSize.value)
-})
-
-const rounds = computed(() => {
-  const totalRounds = Math.max(1, Math.ceil(Math.log2(Math.max(2, resolvedBracketSize.value))))
-  const result = []
-  let current = normalizedSlots.value
-
-  for (let roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
-    const matches = []
-    const next = []
-    const roundName = roundNameFor(totalRounds, roundIdx)
-    const shortToken = roundTokenFor(totalRounds, roundIdx)
-
-    for (let i = 0; i < current.length; i += 2) {
-      const matchIndex = Math.floor(i / 2)
-      const team1 = current[i]
-      const team2 = current[i + 1]
-      if (!team1 || !team2) continue
-
-      matches.push({
-        id: `r${roundIdx}-m${matchIndex}`,
-        label: `${roundName} ${matchIndex + 1}`,
-        team1,
-        team2,
-      })
-
-      if (roundIdx < totalRounds - 1) {
-        next.push({
-          id: `winner-${roundIdx}-${matchIndex}`,
-          sourceLabel: `Sieger ${shortToken} ${matchIndex + 1}`,
-          teamName: '',
-          isBye: false,
-        })
-      }
-    }
-
-    result.push({
-      id: `round-${roundIdx}`,
-      name: roundName,
-      matches,
-    })
-    current = next
-  }
-
-  return result
-})
-
-const sideRounds = computed(() => rounds.value.slice(0, -1))
+const sideRounds = computed(() => mainRounds.value.slice(0, -1))
 
 const leftColumns = computed(() =>
   sideRounds.value
-    .map(round => ({
-      id: `left-${round.id}`,
-      name: round.name,
-      matches: round.matches.slice(0, Math.ceil(round.matches.length / 2)),
+    .map((round, roundIdx) => ({
+      id: `left-${round.id ?? round.round_name ?? roundIdx}`,
+      name: round.round_name || `Runde ${roundIdx + 1}`,
+      matches: normalizeMatches(round.matches, round.round_name).slice(
+        0,
+        Math.ceil((round.matches || []).length / 2)
+      ),
     }))
     .filter(column => column.matches.length)
 )
 
 const rightColumns = computed(() =>
   sideRounds.value
-    .map(round => ({
-      id: `right-${round.id}`,
-      name: round.name,
-      matches: round.matches.slice(Math.ceil(round.matches.length / 2)),
+    .map((round, roundIdx) => ({
+      id: `right-${round.id ?? round.round_name ?? roundIdx}`,
+      name: round.round_name || `Runde ${roundIdx + 1}`,
+      matches: normalizeMatches(round.matches, round.round_name).slice(
+        Math.ceil((round.matches || []).length / 2)
+      ),
     }))
     .filter(column => column.matches.length)
     .reverse()
 )
 
 const finalMatch = computed(() => {
-  const lastRound = rounds.value[rounds.value.length - 1]
-  return lastRound?.matches?.[0] ?? null
+  const lastRound = mainRounds.value[mainRounds.value.length - 1]
+  return normalizeMatch(lastRound?.matches?.[0], lastRound?.round_name, 0)
 })
 
 const thirdPlaceMatch = computed(() => {
-  if (!props.showThirdPlace || rounds.value.length < 2) return null
-  return {
-    id: 'third-place-match',
-    label: props.thirdPlaceTitle,
-    team1: {
-      id: 'loser-hf-1',
-      sourceLabel: 'Verlierer HF 1',
-      teamName: '',
-      isBye: false,
-    },
-    team2: {
-      id: 'loser-hf-2',
-      sourceLabel: 'Verlierer HF 2',
-      teamName: '',
-      isBye: false,
-    },
-  }
+  const placementRound = (props.rounds || []).find(round => round?.bracket_type === 'placement')
+  if (!placementRound?.matches?.length) return null
+  return normalizeMatch(placementRound.matches[0], placementRound.round_name || props.thirdPlaceTitle, 0)
 })
 
-const totalRounds = computed(() => rounds.value.length)
+const totalRounds = computed(() => mainRounds.value.length)
 
 const layoutStyle = computed(() => {
   const roundsCount = totalRounds.value
@@ -297,43 +273,69 @@ const layoutStyle = computed(() => {
   }
 })
 
-function nextPowerOfTwo(value) {
-  let size = 2
-  while (size < Math.max(2, value)) size *= 2
-  return size
+function normalizeMatches(matches, roundName) {
+  return (matches || [])
+    .map((match, matchIdx) => normalizeMatch(match, roundName, matchIdx))
+    .filter(Boolean)
 }
 
-function roundNameFor(totalRoundsCount, roundIdx) {
-  const names = {
-    1: ['Finale'],
-    2: ['Halbfinale', 'Finale'],
-    3: ['Viertelfinale', 'Halbfinale', 'Finale'],
-    4: ['Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale'],
-    5: ['Runde der 32', 'Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale'],
-    6: ['Runde der 64', 'Runde der 32', 'Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale'],
-    7: ['Runde der 128', 'Runde der 64', 'Runde der 32', 'Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale'],
-    8: ['Runde der 256', 'Runde der 128', 'Runde der 64', 'Runde der 32', 'Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale'],
+function normalizeMatch(match, roundName, matchIdx) {
+  if (!match) return null
+  const explicitLabel = String(match.label || match.match_label || '').trim()
+  return {
+    id: match.id ?? `${roundName || 'round'}-${matchIdx}`,
+    label: explicitLabel || `${roundName || 'Runde'} ${matchIdx + 1}`,
+    winner: match.winner || '',
+    team1: normalizeSlot(match, 'team1', 'cups_team1'),
+    team2: normalizeSlot(match, 'team2', 'cups_team2'),
   }
-  return names[totalRoundsCount]?.[roundIdx] || `Runde ${roundIdx + 1}`
 }
 
-function roundTokenFor(totalRoundsCount, roundIdx) {
-  const tokens = {
-    1: ['F'],
-    2: ['HF', 'F'],
-    3: ['VF', 'HF', 'F'],
-    4: ['AF', 'VF', 'HF', 'F'],
-    5: ['R32', 'AF', 'VF', 'HF', 'F'],
-    6: ['R64', 'R32', 'AF', 'VF', 'HF', 'F'],
-    7: ['R128', 'R64', 'R32', 'AF', 'VF', 'HF', 'F'],
-    8: ['R256', 'R128', 'R64', 'R32', 'AF', 'VF', 'HF', 'F'],
+function normalizeSlot(match, teamKey, cupsKey) {
+  const teamName = String(match?.[teamKey] || '').trim()
+  const winner = String(match?.winner || '').trim()
+  const cupsRaw = Number(match?.[cupsKey] ?? 0)
+  const cups = Number.isFinite(cupsRaw) ? cupsRaw : 0
+
+  if (!teamName) {
+    return {
+      sourceLabel: winner ? 'Freilos' : 'Noch offen',
+      metaLabel: '',
+      isBye: !!winner,
+      isWinner: false,
+      isLoser: false,
+    }
   }
-  return tokens[totalRoundsCount]?.[roundIdx] || `R${roundIdx + 1}`
+
+  return {
+    sourceLabel: teamName,
+    metaLabel: cups > 0 || winner ? `${cups} Becher` : '',
+    isBye: false,
+    isWinner: !!winner && winner === teamName,
+    isLoser: !!winner && winner !== teamName,
+  }
+}
+
+function slotClass(slot) {
+  return {
+    'bracket-slot--bye': slot.isBye,
+    'bracket-slot--winner': slot.isWinner,
+    'bracket-slot--loser': slot.isLoser,
+  }
+}
+
+function isActiveMatch(matchId) {
+  if (matchId == null || !props.activeMatchIds) return false
+  if (typeof props.activeMatchIds.has === 'function') return props.activeMatchIds.has(matchId)
+  if (Array.isArray(props.activeMatchIds)) return props.activeMatchIds.includes(matchId)
+  return !!props.activeMatchIds[matchId]
 }
 
 // ── Auto-scale: shrink bracket to fit container width ────────────────────
-const scrollRef  = ref(null)
-const layoutRef  = ref(null)
+// zoom (unlike transform:scale) affects layout, so the parent collapses
+// to the scaled height automatically — no manual height management needed.
+const scrollRef  = ref(null)   // .bracket-tree__scroll — observed for available width
+const layoutRef  = ref(null)   // .bracket-tree__layout — measured for natural width
 
 const _naturalW = ref(0)
 const _naturalH = ref(0)
@@ -384,7 +386,7 @@ onMounted(() => {
   _remeasure()
 })
 onUnmounted(() => _ro?.disconnect())
-watch(() => [props.slots, props.bracketSize], () => _remeasure(), { deep: true, flush: 'post' })
+watch(() => props.rounds, () => _remeasure(), { deep: true, flush: 'post' })
 </script>
 
 <style scoped>
@@ -525,12 +527,39 @@ watch(() => [props.slots, props.bracketSize], () => _remeasure(), { deep: true, 
   background: rgba(255, 255, 255, 0.05);
 }
 
-.bracket-match__label {
+.bracket-match__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.45rem;
+}
+
+.bracket-match__label {
   color: rgba(255, 255, 255, 0.52);
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.bracket-live-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #dc3545;
+  flex: 0 0 auto;
+  animation: bracket-live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes bracket-live-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.72);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);
+    opacity: 0.82;
+  }
 }
 
 .bracket-match__versus {
@@ -539,6 +568,18 @@ watch(() => [props.slots, props.bracketSize], () => _remeasure(), { deep: true, 
   font-weight: 700;
   text-align: center;
   margin: 0.28rem 0;
+}
+
+.bracket-match__winner {
+  margin-top: 0.5rem;
+  color: #4ade80;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.bracket-match__winner--gold {
+  color: #fbbf24;
 }
 
 .bracket-slot {
@@ -551,6 +592,15 @@ watch(() => [props.slots, props.bracketSize], () => _remeasure(), { deep: true, 
 .bracket-slot--bye {
   opacity: 0.65;
   background: linear-gradient(135deg, rgba(46, 46, 46, 0.88) 0%, rgba(23, 23, 23, 0.88) 100%);
+}
+
+.bracket-slot--winner {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: linear-gradient(135deg, rgba(16, 78, 43, 0.92) 0%, rgba(8, 44, 24, 0.92) 100%);
+}
+
+.bracket-slot--loser {
+  opacity: 0.68;
 }
 
 .bracket-slot__seed {

@@ -69,35 +69,67 @@
 
           <!-- Schützenauswahl Overlay für diesen Tisch -->
           <div v-if="pendingShooter && pendingShooter.matchId == m.id" class="p-5 border border-warning rounded bg-dark text-center shadow-lg" style="min-height: 300px;">
-            <h4 class="text-warning mb-4">Treffer für {{ pendingShooter.teamName }}!</h4>
-            <p class="text-light mb-4">Wer hat den Becher getroffen?</p>
-            <div class="d-flex justify-content-center gap-3 mb-4">
-              <button
-                v-if="pendingShooter.p1"
-                class="btn btn-lg px-4 py-3 fw-bold"
-                :class="selectedPlayer === pendingShooter.p1 ? 'btn-success scale-up' : 'btn-outline-success'"
-                @click="selectShooter(pendingShooter.p1)"
-              >
-                {{ pendingShooter.p1 }}
-              </button>
-              <button
-                v-if="pendingShooter.p2"
-                class="btn btn-lg px-4 py-3 fw-bold"
-                :class="selectedPlayer === pendingShooter.p2 ? 'btn-success scale-up' : 'btn-outline-success'"
-                @click="selectShooter(pendingShooter.p2)"
-              >
-                {{ pendingShooter.p2 }}
-              </button>
-            </div>
+            <h4 class="text-warning mb-4">
+              {{ pendingShooter.mode === 'overtime_credit' ? `Nachwurf für ${pendingShooter.teamName}!` : `Treffer für ${pendingShooter.teamName}!` }}
+            </h4>
+            <template v-if="pendingShooter.mode === 'overtime_credit'">
+              <p class="text-light mb-2">
+                Verteile die {{ pendingShooter.bonusCupCount }} Nachwurf-Becher auf die Spieler.
+              </p>
+              <div class="text-secondary small mb-4">
+                Noch zu verteilen: {{ getGroupOvertimeRemainingCups() }}
+              </div>
+              <div class="d-flex justify-content-center gap-3 flex-wrap mb-4">
+                <div v-if="pendingShooter.p1" class="group-credit-card">
+                  <div class="text-light fw-semibold mb-2">{{ pendingShooter.p1 }}</div>
+                  <div class="btn-group" role="group" aria-label="Nachwurf Gruppe Spieler 1">
+                    <button class="btn btn-outline-secondary" @click="adjustGroupOvertimeAllocation('p1', -1)" :disabled="(pendingShooter.bonusP1 || 0) <= 0">−</button>
+                    <span class="btn btn-outline-light disabled group-credit-count">{{ pendingShooter.bonusP1 || 0 }}</span>
+                    <button class="btn btn-outline-warning" @click="adjustGroupOvertimeAllocation('p1', 1)" :disabled="getGroupOvertimeRemainingCups() <= 0">+</button>
+                  </div>
+                </div>
+                <div v-if="pendingShooter.p2" class="group-credit-card">
+                  <div class="text-light fw-semibold mb-2">{{ pendingShooter.p2 }}</div>
+                  <div class="btn-group" role="group" aria-label="Nachwurf Gruppe Spieler 2">
+                    <button class="btn btn-outline-secondary" @click="adjustGroupOvertimeAllocation('p2', -1)" :disabled="(pendingShooter.bonusP2 || 0) <= 0">−</button>
+                    <span class="btn btn-outline-light disabled group-credit-count">{{ pendingShooter.bonusP2 || 0 }}</span>
+                    <button class="btn btn-outline-warning" @click="adjustGroupOvertimeAllocation('p2', 1)" :disabled="getGroupOvertimeRemainingCups() <= 0">+</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <p class="text-light mb-4">Wer hat den Becher getroffen?</p>
+              <div class="d-flex justify-content-center gap-3 mb-4">
+                <button
+                  v-if="pendingShooter.p1"
+                  class="btn btn-lg px-4 py-3 fw-bold"
+                  :class="selectedPlayer === pendingShooter.p1 ? 'btn-success scale-up' : 'btn-outline-success'"
+                  @click="selectShooter(pendingShooter.p1)"
+                >
+                  {{ pendingShooter.p1 }}
+                </button>
+                <button
+                  v-if="pendingShooter.p2"
+                  class="btn btn-lg px-4 py-3 fw-bold"
+                  :class="selectedPlayer === pendingShooter.p2 ? 'btn-success scale-up' : 'btn-outline-success'"
+                  @click="selectShooter(pendingShooter.p2)"
+                >
+                  {{ pendingShooter.p2 }}
+                </button>
+              </div>
+            </template>
 
             <div class="d-flex justify-content-center gap-2">
-              <button class="btn btn-outline-secondary" @click="cancelShooter">Abbruch (Undo)</button>
+              <button class="btn btn-outline-secondary" @click="cancelShooter">
+                {{ pendingShooter.mode === 'overtime_credit' ? 'Zurück' : 'Abbruch (Undo)' }}
+              </button>
               <button
                 class="btn btn-primary btn-lg px-5 fw-bold"
-                :disabled="!selectedPlayer"
+                :disabled="pendingShooter.mode === 'overtime_credit' ? !isGroupOvertimeAllocationComplete() : !selectedPlayer"
                 @click="confirmShooter"
               >
-                Treffer Bestätigen
+                {{ pendingShooter.mode === 'overtime_credit' ? 'Nachwurf Bestätigen' : 'Treffer Bestätigen' }}
               </button>
             </div>
           </div>
@@ -595,7 +627,7 @@ const saveState = ref('idle')
 let autosaveTimer = null
 const AUTOSAVE_MS = 400
 
-/** Schützenauswahl: { groupName, matchIndex, teamKey } | null */
+/** Schützenauswahl: { mode, groupName, matchIndex, teamKey } | null */
 const pendingShooter = ref(null)
 const selectedPlayer = ref(null)
 
@@ -1025,12 +1057,15 @@ function onLiveCupHit(groupName, matchIndex, payload) {
   const shooterTeamKey = teamKey === 'team1' ? 'team2' : 'team1'
   const shooterTeamName = shooterTeamKey === 'team1' ? match.team1 : match.team2
 
-  // Robuster Lookup: Suche im Store nach dem Teamnamen (Case-Insensitive & Trimmed)
-  const allPlayerKeys = Object.keys(store.teamPlayers || {})
-  const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === shooterTeamName.trim().toLowerCase())
-  const players = store.teamPlayers[exactKey || shooterTeamName]
+  const players = resolveGroupTeamPlayers(shooterTeamName)
+
+  if (!(players.p1 || players.p2)) {
+    _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, null, shooterTeamName)
+    return
+  }
 
   pendingShooter.value = {
+    mode: 'cup_hit',
     matchId: match.id,
     groupName,
     matchIndex,
@@ -1038,8 +1073,8 @@ function onLiveCupHit(groupName, matchIndex, payload) {
     teamName: shooterTeamName,
     cupIndex,
     fromTable: true,
-    p1: players?.player1 || 'Spieler 1',
-    p2: players?.player2 || 'Spieler 2',
+    p1: players.p1,
+    p2: players.p2,
   }
   selectedPlayer.value = null
 }
@@ -1080,9 +1115,9 @@ function _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, shooterName, sh
   if (standingCups === 0) {
     if (m.is_overtime) {
       // In der Verlängerung direkt zur End-Abfrage springen (kein Nachwurf mehr)
-      pendingConclusion.value = { match: m, groupName, matchIndex, step: 'END_QUERY', history: ['END_QUERY'] }
+      pendingConclusion.value = { match: m, groupName, matchIndex, teamKey, step: 'END_QUERY', history: ['END_QUERY'] }
     } else {
-      pendingConclusion.value = { match: m, groupName, matchIndex, step: 'NACHWURF', history: ['NACHWURF'] }
+      pendingConclusion.value = { match: m, groupName, matchIndex, teamKey, step: 'NACHWURF', history: ['NACHWURF'] }
     }
   }
 
@@ -1221,14 +1256,102 @@ function setCups(groupName, matchIndex, teamField, rawValue) {
   scheduleAutoSave()
 }
 
+function resolveGroupTeamPlayers(teamName) {
+  if (!teamName) return { p1: null, p2: null }
+  const normalized = teamName.trim().toLowerCase()
+  const allPlayerKeys = Object.keys(props.teamPlayers || {})
+  const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === normalized)
+  const players = props.teamPlayers[exactKey || teamName] || {}
+  return {
+    p1: players.player1 || null,
+    p2: players.player2 || null,
+  }
+}
+
+function getStandingGroupCups(match, teamKey) {
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  if (Array.isArray(match?.[stateKey]) && match[stateKey].length) {
+    return match[stateKey].filter(Boolean).length
+  }
+  const hitsTaken = teamKey === 'team1' ? safeNum(match?.cups_team2) : safeNum(match?.cups_team1)
+  return Math.max(0, cupsTarget.value - hitsTaken)
+}
+
+function buildFrontOvertimeState(size) {
+  const state = Array(size).fill(false)
+  if (size >= 10) {
+    ;[9, 7, 8].forEach(idx => { if (idx < size) state[idx] = true })
+    return state
+  }
+  if (size >= 6) {
+    ;[5, 3, 4].forEach(idx => { if (idx < size) state[idx] = true })
+    return state
+  }
+  for (let i = Math.max(0, size - 3); i < size; i++) state[i] = true
+  return state
+}
+
+function createGroupOvertimeAllocation(teamName, players, total, extra = {}) {
+  return {
+    mode: 'overtime_credit',
+    teamName,
+    p1: players.p1,
+    p2: players.p2,
+    bonusCupCount: total,
+    bonusP1: players.p1 && !players.p2 ? total : 0,
+    bonusP2: players.p2 && !players.p1 ? total : 0,
+    ...extra,
+  }
+}
+
+function getGroupOvertimeAssignedCups() {
+  const pending = pendingShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return 0
+  return Number(pending.bonusP1 || 0) + Number(pending.bonusP2 || 0)
+}
+
+function getGroupOvertimeRemainingCups() {
+  const pending = pendingShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return 0
+  return Math.max(0, Number(pending.bonusCupCount || 0) - getGroupOvertimeAssignedCups())
+}
+
+function isGroupOvertimeAllocationComplete() {
+  const pending = pendingShooter.value
+  return !!pending && pending.mode === 'overtime_credit' && getGroupOvertimeAssignedCups() > 0 && getGroupOvertimeRemainingCups() === 0
+}
+
+function adjustGroupOvertimeAllocation(slot, delta) {
+  const pending = pendingShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return
+  const key = slot === 'p2' ? 'bonusP2' : 'bonusP1'
+  const current = Number(pending[key] || 0)
+  if (delta < 0 && current <= 0) return
+  if (delta > 0 && getGroupOvertimeRemainingCups() <= 0) return
+  pending[key] = Math.max(0, current + delta)
+}
+
+function buildGroupOvertimeAllocations() {
+  const pending = pendingShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return []
+  const allocations = []
+  if (pending.p1 && Number(pending.bonusP1 || 0) > 0) {
+    allocations.push({ player_name: pending.p1, count: Number(pending.bonusP1) })
+  }
+  if (pending.p2 && Number(pending.bonusP2 || 0) > 0) {
+    allocations.push({ player_name: pending.p2, count: Number(pending.bonusP2) })
+  }
+  return allocations
+}
+
 function incrementCups(groupName, matchIndex, teamKey) {
   const match = (groupMatches.value[groupName] || [])[matchIndex]
   if (!match) return
   const teamName = teamKey === 'team1' ? match.team1 : match.team2
-  const players = props.teamPlayers[teamName]
+  const players = resolveGroupTeamPlayers(teamName)
   // If team has named players, ask who scored first
-  if (players && (players.player1 || players.player2)) {
-    pendingShooter.value = { matchId: match.id, groupName, matchIndex, teamKey, teamName }
+  if (players.p1 || players.p2) {
+    pendingShooter.value = { mode: 'cup_hit', matchId: match.id, groupName, matchIndex, teamKey, teamName, p1: players.p1, p2: players.p2 }
     selectedPlayer.value = null
     return
   }
@@ -1240,12 +1363,24 @@ function selectShooter(playerName) {
 }
 
 function confirmShooter() {
-  if (!pendingShooter.value || !selectedPlayer.value) return
-  const { groupName, matchIndex, teamKey, teamName, cupIndex, fromTable } = pendingShooter.value
+  if (!pendingShooter.value) return
+  const { mode, groupName, matchIndex, teamKey, teamName, cupIndex, fromTable, bonusCupCount } = pendingShooter.value
+  if (mode !== 'overtime_credit' && !selectedPlayer.value) return
   const playerName = selectedPlayer.value
+  const allocations = mode === 'overtime_credit' ? buildGroupOvertimeAllocations() : []
+  if (mode === 'overtime_credit' && (!allocations.length || !isGroupOvertimeAllocationComplete())) return
 
   pendingShooter.value = null
   selectedPlayer.value = null
+
+  if (mode === 'overtime_credit') {
+    applyGroupOvertime(groupName, matchIndex, teamKey, {
+      teamName,
+      creditCount: bonusCupCount,
+      allocations,
+    })
+    return
+  }
 
   if (fromTable) {
     _doLiveCupHit(groupName, matchIndex, teamKey, cupIndex, playerName, teamName)
@@ -2059,14 +2194,51 @@ function finishConclusion(actuallyFinish) {
 
 function conclusionOvertime() {
   if (!pendingConclusion.value) return
-  const { match, groupName, matchIndex } = pendingConclusion.value
+  const { groupName, matchIndex, teamKey } = pendingConclusion.value
+  const list = [...groupMatches.value[groupName]]
+  const match = { ...list[matchIndex] }
+  if (!match) return
+  const overtimeTeamName = teamKey === 'team1' ? match.team1 : match.team2
+  const opponentTeamKey = teamKey === 'team1' ? 'team2' : 'team1'
+  const remainingOpponentCups = getStandingGroupCups(match, opponentTeamKey)
 
-  // Setze beide Teams auf 3 Becher (an der Spitze)
-  // Annahme: cupsTarget ist 6 oder 10. Die Becher 0, 1, 2 sind oft die vorderen in der Pyramide.
-  // Wir machen es einfach: Wir stellen die ersten 3 Becher wieder auf, Rest ist hit.
-  const otSize = 3
-  const newState = Array(cupsTarget.value).fill(false)
-  for (let i = 0; i < otSize; i++) newState[i] = true
+  if (remainingOpponentCups > 0) {
+    const players = resolveGroupTeamPlayers(overtimeTeamName)
+    if (players.p1 || players.p2) {
+      pendingShooter.value = createGroupOvertimeAllocation(overtimeTeamName, players, remainingOpponentCups, {
+        matchId: match.id,
+        groupName,
+        matchIndex,
+        teamKey,
+      })
+      selectedPlayer.value = null
+      return
+    }
+  }
+
+  applyGroupOvertime(groupName, matchIndex, teamKey, {
+    playerName: null,
+    teamName: overtimeTeamName,
+    creditCount: remainingOpponentCups,
+  })
+}
+
+function applyGroupOvertime(groupName, matchIndex, teamKey, creditInfo = null) {
+  const list = [...groupMatches.value[groupName]]
+  const match = { ...list[matchIndex] }
+  if (!match) return
+
+  if (creditInfo?.creditCount > 0) {
+    const scoreField = teamKey === 'team1' ? 'cups_team1' : 'cups_team2'
+    match[scoreField] = clampInt(
+      safeNum(match[scoreField]) + creditInfo.creditCount,
+      0,
+      cupsTarget.value
+    )
+  }
+
+  // Verlängerung startet mit 3 Bechern im vorderen Dreieck.
+  const newState = buildFrontOvertimeState(cupsTarget.value)
 
   match.cups_state_team1 = [...newState]
   match.cups_state_team2 = [...newState]
@@ -2075,12 +2247,18 @@ function conclusionOvertime() {
   match.winner = null
   match.is_overtime = true
 
-  const list = [...groupMatches.value[groupName]]
   list[matchIndex] = match
   groupMatches.value[groupName] = list
   syncTableAssignments(false)
 
-  _sendGroupMatch(groupName, match, { action_type: 'overtime' })
+  _sendGroupMatch(groupName, match, creditInfo?.teamName && Array.isArray(creditInfo?.allocations) && creditInfo.allocations.length
+    ? {
+        action_type: 'overtime_credit',
+        team_name: creditInfo.teamName,
+        credit_count: creditInfo.creditCount,
+        credit_allocations: creditInfo.allocations,
+      }
+    : { action_type: 'overtime' })
   scheduleAutoSave()
   pendingConclusion.value = null
 }
@@ -2313,6 +2491,18 @@ function formatPlayers(teamName) {
   transform: scale(1.1);
   box-shadow: 0 0 15px rgba(25, 135, 84, 0.5);
   transition: all 0.2s ease-in-out;
+}
+
+.group-credit-card {
+  min-width: 180px;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.group-credit-count {
+  min-width: 3.5rem;
 }
 
 .cups-input {

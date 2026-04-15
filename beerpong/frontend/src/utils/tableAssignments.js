@@ -1,3 +1,5 @@
+import { filterKoRoundsForActiveStage } from './koDisplay.js'
+
 export function matchKey(match) {
   if (match?.id !== undefined && match?.id !== null) return `id:${match.id}`
   return `fallback:${match?.group_name || ''}:${match?.team1 || ''}:${match?.team2 || ''}:${match?.order_index ?? 0}`
@@ -147,19 +149,80 @@ export function flattenKORounds(rounds = []) {
   return all
 }
 
-export function getKOActiveMatches(rounds = [], tableCount = 0) {
+export function getKOActiveMatches(rounds = [], tableCount = 0, activeMainRoundIndex = null) {
   const maxTables = Math.max(0, Number(tableCount) || 0)
   if (maxTables === 0) return []
-  const pending = flattenKORounds(rounds).filter(m => !m.winner && m.team1 && m.team2)
-  return pending.slice(0, maxTables).map((m, i) => ({ ...m, table_no: i + 1 }))
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
+  const assignments = buildStableKOAssignmentMap(stageRounds, maxTables)
+  return flattenKORounds(stageRounds)
+    .filter(match => !match.winner && match.team1 && match.team2)
+    .map(match => {
+      const assignedTable = assignments.get(matchKey(match))
+      return assignedTable ? { ...match, table_no: assignedTable } : match
+    })
+    .filter(match => !!getTableNo(match))
+    .sort((a, b) => getTableNo(a) - getTableNo(b))
 }
 
-export function getKOUpcomingMatches(rounds = [], tableCount = 0, limit = 10) {
-  const active = getKOActiveMatches(rounds, tableCount)
-  const activeIds = new Set(active.map(m => m.id).filter(id => id != null))
-  return flattenKORounds(rounds)
-    .filter(m => !m.winner && m.team1 && m.team2 && !activeIds.has(m.id))
+export function getKOUpcomingMatches(rounds = [], tableCount = 0, limit = 10, activeMainRoundIndex = null) {
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
+  const active = getKOActiveMatches(stageRounds, tableCount)
+  const activeKeys = new Set(active.map(match => matchKey(match)))
+  return flattenKORounds(stageRounds)
+    .filter(match => !match.winner && match.team1 && match.team2 && !activeKeys.has(matchKey(match)))
     .slice(0, limit)
+}
+
+export function buildStableKOAssignmentMap(rounds = [], tableCount = 0, activeMainRoundIndex = null) {
+  const maxTables = Math.max(0, Number(tableCount) || 0)
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
+  const pending = flattenKORounds(stageRounds).filter(match => !match.winner && match.team1 && match.team2)
+  const assignedByTable = new Map()
+  const occupiedTeams = new Set()
+
+  for (const match of pending) {
+    const tableNo = getTableNo(match)
+    if (!tableNo || tableNo > maxTables) continue
+    if (assignedByTable.has(tableNo)) continue
+    if (occupiedTeams.has(match.team1) || occupiedTeams.has(match.team2)) continue
+    assignedByTable.set(tableNo, match)
+    occupiedTeams.add(match.team1)
+    occupiedTeams.add(match.team2)
+  }
+
+  const inProgressOrphans = pending.filter(match => !getTableNo(match) && isMatchInProgress(match))
+  for (const match of inProgressOrphans) {
+    if (occupiedTeams.has(match.team1) || occupiedTeams.has(match.team2)) continue
+    for (let tableNo = 1; tableNo <= maxTables; tableNo++) {
+      if (!assignedByTable.has(tableNo)) {
+        assignedByTable.set(tableNo, match)
+        occupiedTeams.add(match.team1)
+        occupiedTeams.add(match.team2)
+        break
+      }
+    }
+  }
+
+  const assignedKeys = new Set([...assignedByTable.values()].map(match => matchKey(match)))
+  const unassigned = pending.filter(match => !assignedKeys.has(matchKey(match)))
+
+  for (let tableNo = 1; tableNo <= maxTables; tableNo++) {
+    if (assignedByTable.has(tableNo)) continue
+    const candidateIndex = unassigned.findIndex(match =>
+      !occupiedTeams.has(match.team1) && !occupiedTeams.has(match.team2)
+    )
+    if (candidateIndex === -1) continue
+    const [candidate] = unassigned.splice(candidateIndex, 1)
+    assignedByTable.set(tableNo, candidate)
+    occupiedTeams.add(candidate.team1)
+    occupiedTeams.add(candidate.team2)
+  }
+
+  const assignmentMap = new Map()
+  for (const [tableNo, match] of assignedByTable.entries()) {
+    assignmentMap.set(matchKey(match), tableNo)
+  }
+  return assignmentMap
 }
 
 export function makeCupsStateFromCount(hitCount, totalCups = 6) {

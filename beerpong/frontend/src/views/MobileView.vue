@@ -132,7 +132,10 @@
 
         <!-- Actual bracket with results — symmetric tree layout -->
         <div v-if="koRounds.length" class="ko-bracket-wrap">
-          <MobileKOBracket :rounds="koRounds" />
+          <KnockoutResultsTree
+            :rounds="koRounds"
+            :active-match-ids="activeKoMatchIds"
+          />
         </div>
 
         <!-- Preview: seeding placeholders before KO starts -->
@@ -163,9 +166,10 @@ import { api } from '../api.js'
 import { useTournamentStore } from '../stores/tournament.js'
 import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
-import { getAssignedActiveMatches, getUpcomingMatches, getKOActiveMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
-import MobileKOBracket from '../components/MobileKOBracket.vue'
+import { getAssignedActiveMatches, getUpcomingMatches, getKOActiveMatches, getKOUpcomingMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
+import KnockoutResultsTree from '../components/KnockoutResultsTree.vue'
 import KnockoutPreviewTree from '../components/KnockoutPreviewTree.vue'
+import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
 const route = useRoute()
 const store = useTournamentStore()
@@ -208,10 +212,12 @@ const groupStandings = computed(() => {
   })
   return out
 })
-const koRounds       = computed(() => store.koPhase?.rounds ?? [])
+const koRounds       = computed(() => normalizeKoRoundsForDisplay(store.koPhase?.rounds ?? []))
 const wsConnected    = computed(() => store.wsConnected)
-const currentPhase   = computed(() => store.tournament?.current_phase ?? store.tournament?.currentPhase ?? 'group')
+const currentPhase   = computed(() => store.tournament?.current_phase ?? store.tournament?.currentPhase ?? store.tournament?.status ?? 'group')
 const currentTab     = ref((currentPhase.value === 'ko' || currentPhase.value === 'ko_preview') ? 'ko' : 'groups')
+let mobileRefreshTimer = null
+const isKnockoutPhase = computed(() => currentPhase.value === 'ko' || currentPhase.value === 'ko_preview')
 
 // Auto-switch to KO tab when admin transitions the tournament to KO phase or preview
 watch(currentPhase, (phase) => {
@@ -299,15 +305,40 @@ const activeTableCount = computed(() => {
   const count = Number(tournament.value?.tableCount ?? tournament.value?.table_count ?? 2)
   return Number.isFinite(count) && count > 0 ? count : 2
 })
+const activeKoMainRoundIndex = computed(() =>
+  store.koPhase?.active_main_round_index ?? store.koPhase?.activeMainRoundIndex ?? null
+)
+
+const activeKOMatches = computed(() =>
+  getKOActiveMatches(koRounds.value, activeTableCount.value, activeKoMainRoundIndex.value)
+)
+
+function normalizeKoLiveState(rawState, cupsTarget, hitsTaken = 0, isOvertime = false) {
+  if (Array.isArray(rawState) && rawState.length === cupsTarget) {
+    return [...rawState]
+  }
+  if (isOvertime && Array.isArray(rawState) && rawState.length === 3 && cupsTarget > 3) {
+    const expanded = Array(cupsTarget).fill(false)
+    const indices = cupsTarget >= 10 ? [9, 7, 8] : [5, 3, 4]
+    indices.forEach((targetIdx, idx) => {
+      if (targetIdx < cupsTarget) expanded[targetIdx] = !!rawState[idx]
+    })
+    return expanded
+  }
+  return makeCupsStateFromCount(hitsTaken, cupsTarget)
+}
+
+const activeKoMatchIds = computed(() =>
+  new Set(activeKOMatches.value.map(match => match.id).filter(id => id != null))
+)
 
 const activeMatches = computed(() => {
   if (currentPhase.value === 'ko') {
-    // KO phase: derive active matches from ko rounds
-    return getKOActiveMatches(store.koPhase?.rounds ?? [], activeTableCount.value).map(m => ({
+    return activeKOMatches.value.map(m => ({
       ...m,
       group_name: m.round_name || 'KO-Phase',
-      cups_state_team1: makeCupsStateFromCount(m.cups_team1, cupsPerGame.value),
-      cups_state_team2: makeCupsStateFromCount(m.cups_team2, cupsPerGame.value),
+      cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsPerGame.value, m.cups_team2, !!m.is_overtime),
+      cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsPerGame.value, m.cups_team1, !!m.is_overtime),
     }))
   }
   return getAssignedActiveMatches(store.groupPhase?.matches ?? {}, activeTableCount.value)
@@ -323,7 +354,12 @@ const activeTeamNames = computed(() => {
 })
 
 const upcomingMatches = computed(() =>
-  getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, 10)
+  isKnockoutPhase.value
+    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, 10, activeKoMainRoundIndex.value).map(m => ({
+        ...m,
+        round: m.round_name || 'KO-Phase',
+      }))
+    : getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, 10)
 )
 
 const topPlayers = computed(() => {
@@ -334,14 +370,14 @@ const topPlayers = computed(() => {
 })
 
 const phaseLabel = computed(() => {
-  const phase = store.tournament?.current_phase ?? 'group'
+  const phase = currentPhase.value
   if (phase === 'ko') return 'K.O.'
   if (phase === 'ko_preview') return 'KO-Vorschau'
   if (phase === 'playin') return 'Play-In'
   return 'Gruppenphase'
 })
 const phaseBadgeClass = computed(() => {
-  const phase = store.tournament?.current_phase ?? 'group'
+  const phase = currentPhase.value
   if (phase === 'ko') return 'bg-danger'
   if (phase === 'ko_preview') return 'bg-warning text-dark'
   if (phase === 'playin') return 'bg-warning text-dark'
@@ -355,17 +391,21 @@ onMounted(async () => {
     // We need tournament_id — it comes from the QR URL or we try all
     const tournamentId = route.query.id || route.query.tournament_id
     if (tournamentId) {
+      const applyMobileState = data => store.applyState(data)
+
       const data = await api.tournaments.mobileState(tournamentId, token.value)
       if (!data.error) {
-        store.tournament = data.tournament
-        store.teams = data.teams ?? []
-        store.groupPhase = data.group_phase ?? {}
-        store.groupStandings = data.group_standings ?? {}
-        store.playin = data.playin ?? {}
-        store.koPreview = data.ko_preview ?? {}
-        store.koPhase = data.ko_phase ?? { rounds: [] }
+        applyMobileState(data)
         valid.value = true
         store.connectMobile(tournamentId, token.value)
+        mobileRefreshTimer = window.setInterval(async () => {
+          try {
+            const next = await api.tournaments.mobileState(tournamentId, token.value)
+            if (!next?.error) applyMobileState(next)
+          } catch {
+            // ignore polling errors; websocket remains primary live path
+          }
+        }, 5000)
       }
     } else {
       valid.value = false
@@ -375,6 +415,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (mobileRefreshTimer) {
+    window.clearInterval(mobileRefreshTimer)
+    mobileRefreshTimer = null
+  }
   store.disconnect()
 })
 </script>
@@ -400,11 +444,35 @@ onUnmounted(() => {
   /* do NOT set overflow:hidden here — let the children scroll */
 }
 
-/* ko-bracket-wrap: MobileKOBracket handles scroll internally; just ensure no overflow:hidden above it */
+/* ko-bracket-wrap: result tree handles its own horizontal scroll; keep parents open */
 .ko-bracket-wrap {
   width: 100%;
   overflow: visible;
 }
+
+.ko-bracket-wrap :deep(.bracket-tree),
+.ko-preview-wrap :deep(.bracket-tree) {
+  --bracket-side-width:   130px !important;
+  --bracket-center-width: 150px !important;
+  --bracket-gap:          0.45rem !important;
+  --bracket-padding:      0.5rem !important;
+  --bracket-slot-padding: 0.3rem 0.4rem !important;
+}
+
+.ko-bracket-wrap :deep(.bracket-column__title),
+.ko-preview-wrap :deep(.bracket-column__title)  { font-size: 0.62rem; }
+
+.ko-bracket-wrap :deep(.bracket-slot__seed),
+.ko-preview-wrap :deep(.bracket-slot__seed)     { font-size: 0.6rem; }
+
+.ko-bracket-wrap :deep(.bracket-slot__team),
+.ko-preview-wrap :deep(.bracket-slot__team)     { font-size: 0.58rem; }
+
+.ko-bracket-wrap :deep(.bracket-match__label),
+.ko-preview-wrap :deep(.bracket-match__label)   { font-size: 0.58rem; }
+
+.ko-bracket-wrap :deep(.bracket-match__versus),
+.ko-preview-wrap :deep(.bracket-match__versus)  { font-size: 0.6rem; }
 
 /* ko-preview-wrap: KnockoutPreviewTree needs explicit scroll + mobile scale */
 .ko-preview-wrap {
@@ -413,18 +481,4 @@ onUnmounted(() => {
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0.75rem;
 }
-
-/* Scale down TournamentBracketTree for smartphone — !important overrides inline :style */
-.ko-preview-wrap :deep(.bracket-tree) {
-  --bracket-side-width:   130px !important;
-  --bracket-center-width: 150px !important;
-  --bracket-gap:          0.45rem !important;
-  --bracket-padding:      0.5rem !important;
-  --bracket-slot-padding: 0.3rem 0.4rem !important;
-}
-.ko-preview-wrap :deep(.bracket-column__title)  { font-size: 0.62rem; }
-.ko-preview-wrap :deep(.bracket-slot__seed)     { font-size: 0.6rem; }
-.ko-preview-wrap :deep(.bracket-slot__team)     { font-size: 0.58rem; }
-.ko-preview-wrap :deep(.bracket-match__label)   { font-size: 0.58rem; }
-.ko-preview-wrap :deep(.bracket-match__versus)  { font-size: 0.6rem; }
 </style>

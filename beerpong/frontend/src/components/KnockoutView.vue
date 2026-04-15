@@ -6,7 +6,7 @@
         <div>
           <h2 class="text-light mb-1 fs-4 fw-bold">KO-Phase</h2>
           <div class="text-secondary small opacity-75">
-            Turnierbaum mit automatischer Fortschreibung der Sieger
+            Turnierbaum nach Preview-Plan mit manueller Rundenfreigabe
           </div>
         </div>
         <div class="d-flex flex-wrap gap-2 text-light small">
@@ -22,12 +22,6 @@
           >
             Finale & Platz 3: {{ finaleWith10Cups ? '10 Becher' : 'Standard' }}
           </span>
-          <!-- Table count control -->
-          <div class="d-flex align-items-center gap-1 ms-2">
-            <button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="removeTable" :disabled="tableCount <= 1">−</button>
-            <span class="badge bg-dark border border-secondary px-2">{{ tableCount }} {{ tableCount === 1 ? 'Tisch' : 'Tische' }}</span>
-            <button class="btn btn-sm btn-outline-secondary py-0 px-2" @click="addTable" :disabled="tableCount >= 8">+</button>
-          </div>
         </div>
       </div>
       <div class="d-flex gap-2">
@@ -60,50 +54,222 @@
       <span class="fs-5 fw-bold">🏆 Turniersieger: {{ finalWinner }}</span>
     </div>
 
-    <!-- Bracket -->
-    <div class="ko-bracket-wrapper">
-      <div class="card ko-bracket-card border-0 shadow-lg rounded-4 overflow-hidden">
-        <div class="card-header d-flex justify-content-between align-items-center px-4 py-3 border-bottom border-secondary border-opacity-50 bg-dark bg-opacity-75">
-          <span class="text-white-50 small fw-medium">
-            Gesamtübersicht &amp; Eingabe der Ergebnisse
-          </span>
-          <span class="text-secondary small opacity-75">
-            Horizontales Scrollen bei vielen Runden möglich
-          </span>
+    <!-- Ansichts-Umschalter -->
+    <div class="btn-group mb-4 w-100 shadow-sm">
+      <input type="radio" class="btn-check" id="ko-tab-tables" value="tables" v-model="viewMode">
+      <label class="btn btn-outline-info" for="ko-tab-tables">🏓 Live-Spiele</label>
+
+      <input type="radio" class="btn-check" id="ko-tab-bracket" value="bracket" v-model="viewMode">
+      <label class="btn btn-outline-info" for="ko-tab-bracket">🏆 Turnierbaum</label>
+    </div>
+
+    <!-- ======= LIVE-SPIELE TAB ======= -->
+    <div v-show="viewMode === 'tables'">
+      <!-- Tisch-Verwaltung -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0 text-light">Aktive Tische ({{ tableCount }})</h5>
+        <div class="btn-group">
+          <button class="btn btn-sm btn-outline-secondary" @click="removeTable" :disabled="tableCount <= 1">− Tisch entfernen</button>
+          <button class="btn btn-sm btn-outline-secondary" @click="addTable" :disabled="tableCount >= 8">+ Tisch hinzufügen</button>
         </div>
-        <div class="card-body p-0 overflow-hidden position-relative bracket-container">
-          <div class="bracket-gradient-overlay"></div>
-          <div class="p-4 pt-3">
-            <KnockoutBracket
-              :rounds="roundsLocal"
-              :readonly="false"
-              :interactive="true"
-              :cups-target-fn="cupsTargetForRound"
-              :active-match-ids="activeMatchIds"
-              @increment-cup="onBracketIncrementCup"
-              @set-cups="onBracketSetCups"
-            />
+      </div>
+
+      <div class="card bg-dark border-secondary text-light mb-4">
+        <div class="card-body d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+          <div>
+            <div class="text-secondary small text-uppercase" style="letter-spacing:.08em">Aktive KO-Stufe</div>
+            <div class="fw-bold fs-5">{{ activeStageLabel }}</div>
+            <div class="text-secondary small">
+              {{ currentRoundProgressText }}
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span
+              v-if="activeStageMeta.currentRoundComplete"
+              class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2"
+            >
+              Runde abgeschlossen
+            </span>
+            <span
+              v-else
+              class="badge bg-secondary bg-opacity-75 text-light px-3 py-2"
+            >
+              Runde läuft
+            </span>
+            <button
+              v-if="activeStageMeta.hasNextStage"
+              class="btn btn-sm btn-success"
+              @click="startNextKoRound"
+              :disabled="loading || !canStartNextKoRound"
+            >
+              {{ nextStageButtonLabel }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aktive Tische mit klickbaren Bechern -->
+      <div v-if="liveMatchControls.length" class="ko-live-tables">
+        <div v-for="ctrl in liveMatchControls" :key="ctrl.matchId" class="ko-live-table-wrap">
+          <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+            <h4 class="text-warning mb-0 fw-bold">Tisch {{ ctrl.tableNo }}</h4>
+            <span class="badge bg-secondary">{{ ctrl.roundName }}</span>
+          </div>
+
+          <!-- Schützenauswahl Overlay -->
+          <div v-if="pendingKoShooter && pendingKoShooter.matchId === ctrl.matchId"
+               class="p-4 border border-warning rounded bg-dark text-center shadow-lg ko-shooter-overlay">
+            <h5 class="text-warning mb-3">
+              {{ pendingKoShooter.mode === 'overtime_credit' ? `Nachwurf für ${pendingKoShooter.shooterTeamName}!` : `Treffer für ${pendingKoShooter.shooterTeamName}!` }}
+            </h5>
+            <template v-if="pendingKoShooter.mode === 'overtime_credit'">
+              <p class="text-light mb-2">
+                Verteile die {{ pendingKoShooter.bonusCupCount }} Nachwurf-Becher auf die Spieler.
+              </p>
+              <div class="text-secondary small mb-4">
+                Noch zu verteilen: {{ getKoOvertimeRemainingCups() }}
+              </div>
+              <div class="d-flex justify-content-center gap-3 flex-wrap mb-4">
+                <div v-if="pendingKoShooter.p1" class="ko-credit-card">
+                  <div class="text-light fw-semibold mb-2">{{ pendingKoShooter.p1 }}</div>
+                  <div class="btn-group" role="group" aria-label="Nachwurf Spieler 1">
+                    <button class="btn btn-outline-secondary" @click="adjustKoOvertimeAllocation('p1', -1)" :disabled="(pendingKoShooter.bonusP1 || 0) <= 0">−</button>
+                    <span class="btn btn-outline-light disabled ko-credit-count">{{ pendingKoShooter.bonusP1 || 0 }}</span>
+                    <button class="btn btn-outline-warning" @click="adjustKoOvertimeAllocation('p1', 1)" :disabled="getKoOvertimeRemainingCups() <= 0">+</button>
+                  </div>
+                </div>
+                <div v-if="pendingKoShooter.p2" class="ko-credit-card">
+                  <div class="text-light fw-semibold mb-2">{{ pendingKoShooter.p2 }}</div>
+                  <div class="btn-group" role="group" aria-label="Nachwurf Spieler 2">
+                    <button class="btn btn-outline-secondary" @click="adjustKoOvertimeAllocation('p2', -1)" :disabled="(pendingKoShooter.bonusP2 || 0) <= 0">−</button>
+                    <span class="btn btn-outline-light disabled ko-credit-count">{{ pendingKoShooter.bonusP2 || 0 }}</span>
+                    <button class="btn btn-outline-warning" @click="adjustKoOvertimeAllocation('p2', 1)" :disabled="getKoOvertimeRemainingCups() <= 0">+</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <p class="text-light mb-4">Wer hat den Becher getroffen?</p>
+              <div class="d-flex justify-content-center gap-3 mb-4">
+                <button v-if="pendingKoShooter.p1" class="btn btn-lg px-4 py-3 fw-bold"
+                        :class="selectedKoPlayer === pendingKoShooter.p1 ? 'btn-success' : 'btn-outline-success'"
+                        @click="selectKoShooter(pendingKoShooter.p1)">{{ pendingKoShooter.p1 }}</button>
+                <button v-if="pendingKoShooter.p2" class="btn btn-lg px-4 py-3 fw-bold"
+                        :class="selectedKoPlayer === pendingKoShooter.p2 ? 'btn-success' : 'btn-outline-success'"
+                        @click="selectKoShooter(pendingKoShooter.p2)">{{ pendingKoShooter.p2 }}</button>
+              </div>
+            </template>
+            <div class="d-flex justify-content-center gap-2">
+              <button class="btn btn-outline-secondary" @click="cancelKoShooter">
+                {{ pendingKoShooter.mode === 'overtime_credit' ? 'Zurück' : 'Abbruch (Undo)' }}
+              </button>
+              <button class="btn btn-primary btn-lg px-5 fw-bold" :disabled="pendingKoShooter.mode === 'overtime_credit' ? !isKoOvertimeAllocationComplete() : !selectedKoPlayer" @click="confirmKoShooter">
+                {{ pendingKoShooter.mode === 'overtime_credit' ? 'Nachwurf Bestätigen' : 'Treffer Bestätigen' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Spielabschluss-Dialog -->
+          <div v-else-if="pendingKoConclusion && pendingKoConclusion.matchId === ctrl.matchId"
+               class="p-5 border border-primary rounded bg-dark text-center shadow-lg ko-shooter-overlay">
+            <h4 class="text-primary mb-4">Spielabschluss</h4>
+
+            <template v-if="pendingKoConclusion.step === 'NACHWURF'">
+              <p class="text-light mb-4 fs-5">Alle Becher getroffen! Gibt es einen <strong>Nachwurf</strong>?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-primary px-4 fw-bold" @click="conclusionKoStep('ALL_HIT')">Ja (Nachwurf)</button>
+                <button class="btn btn-lg btn-outline-primary px-4 fw-bold" @click="conclusionKoStep('END_QUERY')">Nein (Direkter Sieg)</button>
+              </div>
+            </template>
+
+            <template v-else-if="pendingKoConclusion.step === 'ALL_HIT'">
+              <p class="text-light mb-4 fs-5">Wurden beim Nachwurf <strong>alle verbleibenden Becher</strong> getroffen?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-warning px-4 fw-bold" @click="conclusionKoOvertime">Ja (Verlängerung 3 Becher)</button>
+                <button class="btn btn-lg btn-outline-primary px-4 fw-bold" @click="conclusionKoStep('END_QUERY')">Nein (Sieg nach Nachwurf)</button>
+              </div>
+            </template>
+
+            <template v-else-if="pendingKoConclusion.step === 'END_QUERY'">
+              <p class="text-light mb-4 fs-5">Soll das Spiel jetzt <strong>final beendet</strong> werden?</p>
+              <div class="d-flex justify-content-center gap-3">
+                <button class="btn btn-lg btn-success px-4 fw-bold" @click="finishKoConclusion(true)">Ja (Spiel abschließen)</button>
+                <button class="btn btn-lg btn-outline-danger px-4 fw-bold" @click="finishKoConclusion(false)">Nein (Zurück zum Spielstand)</button>
+              </div>
+            </template>
+
+            <button v-if="pendingKoConclusion.step !== 'NACHWURF'" class="btn btn-sm btn-outline-secondary mt-4" @click="conclusionKoBack">← Zurück</button>
+            <button v-else class="btn btn-sm btn-outline-secondary mt-4" @click="pendingKoConclusion = null">Abbrechen</button>
+          </div>
+
+          <!-- Normale Becheransicht -->
+          <MatchTableControls
+            v-else
+            :tournament-id="tournamentId"
+            :match-id="ctrl.matchId"
+            :team1-name="ctrl.team1Name"
+            :team2-name="ctrl.team2Name"
+            :is10-cups="ctrl.is10Cups"
+            :cups-state-team1="ctrl.cupsStateTeam1"
+            :cups-state-team2="ctrl.cupsStateTeam2"
+            :team1-rerack-used="ctrl.rerackUsedTeam1"
+            :team2-rerack-used="ctrl.rerackUsedTeam2"
+            @cup-hit="onKoCupHit"
+            @undo="onKoUndo"
+            @rerack="onKoRerack"
+          />
+        </div>
+      </div>
+      <div v-else class="alert alert-dark border-secondary text-secondary">
+        Keine aktiven Spiele – warte auf Teams oder Ergebnisse der vorherigen Runde.
+      </div>
+
+      <!-- Upcoming matches -->
+      <div v-if="upcomingControls.length" class="mt-4">
+        <h6 class="text-secondary mb-2">Nächste Spiele</h6>
+        <div class="list-group list-group-flush">
+          <div v-for="ctrl in upcomingControls" :key="ctrl.matchId"
+               class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between align-items-center">
+            <span>{{ ctrl.team1Name }} vs. {{ ctrl.team2Name }}</span>
+            <span class="badge bg-secondary">{{ ctrl.roundName }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Live KO Tische -->
-    <div v-if="liveMatchCards.length" class="ko-live-section mt-4">
-      <div class="ko-live-header d-flex align-items-center gap-2 mb-3">
-        <span class="badge bg-danger ko-live-badge">🔴 Live Spiele</span>
-        <span class="text-secondary small">{{ liveMatchCards.length }} Spiel{{ liveMatchCards.length === 1 ? '' : 'e' }} aktiv</span>
+    <!-- ======= TURNIERBAUM TAB ======= -->
+    <div v-show="viewMode === 'bracket'" class="ko-tab-root pt-2 pb-3 px-2">
+      <div class="ko-section-head mb-2 px-1 border-bottom border-secondary pb-1">
+        🏆 K.O.-Phase
       </div>
-      <div class="ko-live-tables">
-        <div v-for="(m, i) in liveMatchCards" :key="m.id ?? i" class="ko-live-table-wrap">
-          <LiveTable3D
-            :match="m"
-            :cups-per-game="m._cups_target"
-            :table-label="`Tisch ${m.table_no} • ${m.round_name || 'KO-Phase'}`"
-            beam show-score
+
+      <div v-if="roundsLocal.length" class="ko-bracket-wrap">
+        <KnockoutResultsTree
+          :rounds="roundsLocal"
+          :active-match-ids="activeMatchIds"
+        />
+      </div>
+      <div v-else class="px-2 text-secondary">
+        K.O.-Phase noch nicht verfügbar.
+      </div>
+
+      <!-- Manuelle Ergebnis-Eingabe (ausklappbar) -->
+      <details class="ko-manual-panel mt-4">
+        <summary class="ko-manual-panel__summary text-secondary small">
+          ▸ Manuelle Ergebnis-Eingabe (Becher-Zahlen direkt setzen)
+        </summary>
+        <div class="ko-manual-panel__body mt-2 p-3 bg-dark rounded border border-secondary overflow-auto">
+          <KnockoutBracket
+            :rounds="roundsLocal"
+            :readonly="false"
+            :interactive="true"
+            :cups-target-fn="cupsTargetForRound"
+            :active-match-ids="activeMatchIds"
+            @increment-cup="onBracketIncrementCup"
+            @set-cups="onBracketSetCups"
           />
         </div>
-      </div>
+      </details>
     </div>
 
     <!-- Konfetti + Winner + Bracket -->
@@ -124,11 +290,15 @@
 <script setup>
 import { reactive, ref, computed, onMounted, watch } from 'vue'
 import KnockoutBracket from './KnockoutBracket.vue'
+import KnockoutResultsTree from './KnockoutResultsTree.vue'
 import ConfettiOverlay from './ConfettiOverlay.vue'
-import LiveTable3D from './LiveTable3D.vue'
-import { getKOActiveMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
+import MatchTableControls from './MatchTableControls.vue'
+import { useTournamentStore } from '../stores/tournament.js'
+import { makeCupsStateFromCount } from '../utils/tableAssignments.js'
+import { filterKoRoundsForActiveStage, getKoMainRoundInfos, getKoStageMeta } from '../utils/koDisplay.js'
 
 const API = import.meta.env.VITE_API_BASE || ''
+const store = useTournamentStore()
 
 const props = defineProps({
   tournamentId: { type: Number, required: true },
@@ -141,48 +311,548 @@ const emit = defineEmits(['back', 'saved'])
 /* State */
 const loading = ref(false)
 const roundsLocal = reactive([])
-const activeRoundIndex = ref(0)
+const activeMainRoundIndex = ref(0)
 const initialTeams = computed(() => (props.teams || []).filter(Boolean))
 const tableCount = ref(2)
+const viewMode = ref('tables')
+
+/** Schützenauswahl: { mode, matchId, rIdx, mIdx, teamKey, cupIndex, shooterTeamName, p1, p2, bonusCupCount } | null */
+const pendingKoShooter = ref(null)
+const selectedKoPlayer = ref(null)
+
+/** Spielabschluss-Dialog: { matchId, rIdx, mIdx, teamKey, step, history } | null */
+const pendingKoConclusion = ref(null)
 
 /* Settings */
 const baseCupsPerGame = ref(6)
 const finaleWith10Cups = ref(false)
 
 /* Table management */
-function addTable() { tableCount.value = Math.min(8, tableCount.value + 1); saveTableCount() }
-function removeTable() { tableCount.value = Math.max(1, tableCount.value - 1); saveTableCount() }
-async function saveTableCount() {
-  if (!props.tournamentId) return
+const _tableCountLoading = ref(true)  // suppress watch during initial load
+function addTable() { tableCount.value = Math.min(8, tableCount.value + 1) }
+function removeTable() { tableCount.value = Math.max(1, tableCount.value - 1) }
+
+watch(tableCount, async (newCount) => {
+  if (_tableCountLoading.value || !props.tournamentId) return
   try {
     await fetch(`${API}/tournaments/${props.tournamentId}/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tableCount: tableCount.value }),
+      body: JSON.stringify({ tableCount: newCount }),
     })
   } catch { /* silent */ }
+})
+
+const activeStageMeta = computed(() => getKoStageMeta(roundsLocal, activeMainRoundIndex.value))
+const currentMainRoundInfo = computed(() => {
+  const infos = getKoMainRoundInfos(roundsLocal)
+  return infos[activeStageMeta.value.activeMainRoundIndex] || null
+})
+const activeStageLabel = computed(() => {
+  const baseLabel = activeStageMeta.value.currentRoundLabel || 'KO-Phase'
+  const infos = getKoMainRoundInfos(roundsLocal)
+  const hasPlacement = roundsLocal.some(round => round?.bracket_type === 'placement')
+  if (hasPlacement && activeStageMeta.value.activeMainRoundIndex === infos.length - 1) {
+    return `${baseLabel} & Spiel um Platz 3`
+  }
+  return baseLabel
+})
+const currentRoundProgressText = computed(() => {
+  const matches = currentMainRoundInfo.value?.round?.matches || []
+  const playableMatches = matches.filter(match => match?.team1 && match?.team2)
+  const finishedMatches = playableMatches.filter(match => !!match?.winner)
+  if (!playableMatches.length) return 'Warte auf Teams'
+  return `${finishedMatches.length}/${playableMatches.length} Spiele beendet`
+})
+const canStartNextKoRound = computed(() => activeStageMeta.value.hasNextStage && activeStageMeta.value.currentRoundComplete)
+const nextStageButtonLabel = computed(() =>
+  activeStageMeta.value.nextRoundLabel ? `${activeStageMeta.value.nextRoundLabel} starten` : 'Nächste Runde starten'
+)
+const playableRoundIndices = computed(() => {
+  const rounds = filterKoRoundsForActiveStage(roundsLocal, activeMainRoundIndex.value)
+  return new Set(
+    rounds
+      .map(round => roundsLocal.indexOf(round))
+      .filter(idx => idx >= 0)
+  )
+})
+
+function serializeKoRoundForRelease(round) {
+  if (!round) return null
+  return {
+    bracket_type: round.bracket_type || 'main',
+    round_name: round.round_name || '',
+    matches: (round.matches || [])
+      .filter(match => match?.team1 && match?.team2)
+      .map((match, idx) => ({
+        ko_match_index: idx,
+        team1: match.team1,
+        team2: match.team2,
+      })),
+  }
 }
 
-/* Active KO matches for live display */
-const activeKOMatches = computed(() => getKOActiveMatches(roundsLocal, tableCount.value))
-const activeMatchIds  = computed(() => new Set(activeKOMatches.value.map(m => m.id).filter(id => id != null)))
-const liveMatchCards  = computed(() =>
-  activeKOMatches.value.map(m => {
-    // Find the round index in roundsLocal for cupsTargetForRound
-    const rIdx = roundsLocal.findIndex(r => r.round_name === m.round_name && r.bracket_type === m.bracket_type)
-    const cups = cupsTargetForRound(rIdx >= 0 ? rIdx : 0)
-    return {
-      ...m,
-      group_name: m.round_name || 'KO-Phase',
-      cups_state_team1: makeCupsStateFromCount(m.cups_team1, cups),
-      cups_state_team2: makeCupsStateFromCount(m.cups_team2, cups),
-      _cups_target: cups,
-    }
+/* Undo history per match+team: Map<"rIdx:mIdx:teamKey", number[]> */
+const koUndoHistory = ref(new Map())
+
+/* All pending matches (both teams, no winner), in bracket order */
+const allPendingControls = computed(() => {
+  const result = []
+  roundsLocal.forEach((round, rIdx) => {
+    if (!playableRoundIndices.value.has(rIdx)) return
+    round.matches?.forEach((m, mIdx) => {
+      if (!m.team1 || !m.team2 || m.winner) return
+      const cupsTarget = cupsTargetForRound(rIdx)
+      const state1 = normalizeKoStateArray(m.cups_state_team1, cupsTarget, m.cups_team2, !!m.is_overtime)
+      const state2 = normalizeKoStateArray(m.cups_state_team2, cupsTarget, m.cups_team1, !!m.is_overtime)
+      result.push({
+        matchId: `${rIdx}:${mIdx}`,
+        rIdx, mIdx,
+        team1Name: m.team1,
+        team2Name: m.team2,
+        persistedTableNo: Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0 ? Number(m.table_no) : null,
+        cupsStateTeam1: state1,
+        cupsStateTeam2: state2,
+        is10Cups: cupsTarget === 10,
+        roundName: round.round_name || 'KO-Phase',
+        rerackUsedTeam1: !!m.rerack_used_team1,
+        rerackUsedTeam2: !!m.rerack_used_team2,
+      })
+    })
   })
+  return result
+})
+
+/* Stable table assignments — once a match is at table N, it stays until finished */
+const koTableMap = ref(new Map())  // matchId -> tableNo (reactive, for template)
+let _prevKoTableMap = new Map()    // non-reactive mirror to avoid circular deps
+
+watch(
+  [allPendingControls, tableCount],
+  ([pending, maxTables]) => {
+    const newMap = new Map()
+    const usedTables = new Set()
+
+    // Pass 0: honor persisted assignments from backend or previous sync
+    for (const ctrl of pending) {
+      const tableNo = ctrl.persistedTableNo
+      if (!tableNo || tableNo < 1 || tableNo > maxTables) continue
+      if (newMap.has(ctrl.matchId) || usedTables.has(tableNo)) continue
+      newMap.set(ctrl.matchId, tableNo)
+      usedTables.add(tableNo)
+    }
+
+    // Pass 1: keep existing assignments for still-pending matches
+    for (const [key, tableNo] of _prevKoTableMap.entries()) {
+      if (tableNo < 1 || tableNo > maxTables) continue
+      if (newMap.has(key) || usedTables.has(tableNo)) continue
+      if (pending.find(c => c.matchId === key)) {
+        newMap.set(key, tableNo)
+        usedTables.add(tableNo)
+      }
+    }
+
+    // Pass 2: assign new pending matches to free tables in order
+    const unassigned = pending.filter(c => !newMap.has(c.matchId))
+    let uIdx = 0
+    for (let t = 1; t <= maxTables && uIdx < unassigned.length; t++) {
+      if (!usedTables.has(t)) {
+        newMap.set(unassigned[uIdx].matchId, t)
+        usedTables.add(t)
+        uIdx++
+      }
+    }
+
+    _prevKoTableMap = newMap
+    koTableMap.value = newMap
+  },
+  { deep: true, immediate: true }
 )
 
+/* Live match controls — only assigned tables, sorted by table number */
+const liveMatchControls = computed(() => {
+  const byTable = new Map()
+  for (const ctrl of allPendingControls.value) {
+    const t = koTableMap.value.get(ctrl.matchId)
+    if (t !== undefined) byTable.set(t, ctrl)
+  }
+  const result = []
+  for (let t = 1; t <= tableCount.value; t++) {
+    const ctrl = byTable.get(t)
+    if (ctrl) result.push({ ...ctrl, tableNo: t })
+  }
+  return result
+})
+
+const activeMatchIds = computed(() => new Set(
+  liveMatchControls.value
+    .map(ctrl => roundsLocal[ctrl.rIdx]?.matches?.[ctrl.mIdx]?.id)
+    .filter(id => id != null)
+))
+
+/* Remaining matches not yet at a table */
+const assignedIds = computed(() => new Set(liveMatchControls.value.map(c => c.matchId)))
+const upcomingControls = computed(() =>
+  allPendingControls.value.filter(c => !assignedIds.value.has(c.matchId))
+)
+
+watch(
+  liveMatchControls,
+  controls => {
+    controls.forEach(ctrl => {
+      const match = roundsLocal[ctrl.rIdx]?.matches?.[ctrl.mIdx]
+      if (!match) return
+      const currentTableNo = Number.isFinite(Number(match.table_no)) && Number(match.table_no) > 0
+        ? Number(match.table_no)
+        : null
+      if (currentTableNo === ctrl.tableNo) return
+      match.table_no = ctrl.tableNo
+      saveSingleKoMatch(ctrl.rIdx, ctrl.mIdx, match)
+    })
+  },
+  { deep: true, immediate: true }
+)
+
+function _findKoMatch(matchId) {
+  const [rStr, mStr] = String(matchId).split(':')
+  const rIdx = Number(rStr)
+  const mIdx = Number(mStr)
+  return { rIdx, mIdx, m: roundsLocal[rIdx]?.matches?.[mIdx] ?? null }
+}
+
+function resolveKoTeamPlayers(teamName) {
+  if (!teamName) return { p1: null, p2: null }
+  const normalized = teamName.trim().toLowerCase()
+  const allPlayerKeys = Object.keys(store.teamPlayers || {})
+  const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === normalized)
+  const players = store.teamPlayers[exactKey || teamName] || {}
+  return {
+    p1: players.player1 || null,
+    p2: players.player2 || null,
+  }
+}
+
+function buildFrontOvertimeState(size, rawState = null) {
+  const state = Array(size).fill(false)
+  const source = Array.isArray(rawState) ? rawState : [true, true, true]
+  const indices = size >= 10 ? [9, 7, 8] : size >= 6 ? [5, 3, 4] : Array.from({ length: Math.min(3, size) }, (_, idx) => Math.max(0, size - Math.min(3, size) + idx))
+  indices.forEach((targetIdx, idx) => {
+    if (targetIdx < size) state[targetIdx] = !!source[idx]
+  })
+  return state
+}
+
+function normalizeKoStateArray(rawState, cupsTarget, hitsTaken = 0, isOvertime = false) {
+  if (Array.isArray(rawState) && rawState.length === cupsTarget) {
+    return [...rawState]
+  }
+  if (isOvertime && Array.isArray(rawState) && rawState.length === 3 && cupsTarget > 3) {
+    return buildFrontOvertimeState(cupsTarget, rawState)
+  }
+  return makeCupsStateFromCount(hitsTaken, cupsTarget)
+}
+
+function getKoStandingCups(m, teamKey, fallbackTarget) {
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  if (Array.isArray(m?.[stateKey]) && m[stateKey].length) {
+    return m[stateKey].filter(Boolean).length
+  }
+  const hitsTaken = teamKey === 'team1' ? safeNum(m?.cups_team2) : safeNum(m?.cups_team1)
+  return Math.max(0, safeNum(fallbackTarget) - hitsTaken)
+}
+
+function createKoOvertimeAllocation(teamName, players, total, extra = {}) {
+  return {
+    mode: 'overtime_credit',
+    shooterTeamName: teamName,
+    p1: players.p1,
+    p2: players.p2,
+    bonusCupCount: total,
+    bonusP1: players.p1 && !players.p2 ? total : 0,
+    bonusP2: players.p2 && !players.p1 ? total : 0,
+    ...extra,
+  }
+}
+
+function getKoOvertimeAssignedCups() {
+  const pending = pendingKoShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return 0
+  return Number(pending.bonusP1 || 0) + Number(pending.bonusP2 || 0)
+}
+
+function getKoOvertimeRemainingCups() {
+  const pending = pendingKoShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return 0
+  return Math.max(0, Number(pending.bonusCupCount || 0) - getKoOvertimeAssignedCups())
+}
+
+function isKoOvertimeAllocationComplete() {
+  const pending = pendingKoShooter.value
+  return !!pending && pending.mode === 'overtime_credit' && getKoOvertimeAssignedCups() > 0 && getKoOvertimeRemainingCups() === 0
+}
+
+function adjustKoOvertimeAllocation(slot, delta) {
+  const pending = pendingKoShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return
+  const key = slot === 'p2' ? 'bonusP2' : 'bonusP1'
+  const current = Number(pending[key] || 0)
+  if (delta < 0 && current <= 0) return
+  if (delta > 0 && getKoOvertimeRemainingCups() <= 0) return
+  pending[key] = Math.max(0, current + delta)
+}
+
+function buildKoOvertimeAllocations() {
+  const pending = pendingKoShooter.value
+  if (!pending || pending.mode !== 'overtime_credit') return []
+  const allocations = []
+  if (pending.p1 && Number(pending.bonusP1 || 0) > 0) {
+    allocations.push({ player_name: pending.p1, count: Number(pending.bonusP1) })
+  }
+  if (pending.p2 && Number(pending.bonusP2 || 0) > 0) {
+    allocations.push({ player_name: pending.p2, count: Number(pending.bonusP2) })
+  }
+  return allocations
+}
+
+function onKoCupHit({ matchId, teamKey, cupIndex }) {
+  const { rIdx, mIdx, m } = _findKoMatch(matchId)
+  if (!m) return
+
+  // Schütze ist das Team das NICHT getroffen wurde (also das andere Team)
+  const shooterTeamKey = teamKey === 'team1' ? 'team2' : 'team1'
+  const shooterTeamName = m[shooterTeamKey]
+
+  const players = resolveKoTeamPlayers(shooterTeamName)
+
+  if (players.p1 || players.p2) {
+    pendingKoShooter.value = {
+      mode: 'cup_hit',
+      matchId, rIdx, mIdx, teamKey, cupIndex,
+      shooterTeamName,
+      p1: players.p1,
+      p2: players.p2,
+    }
+    selectedKoPlayer.value = null
+    return
+  }
+
+  _doKoCupHit(matchId, rIdx, mIdx, teamKey, cupIndex, null)
+}
+
+function _doKoCupHit(matchId, rIdx, mIdx, teamKey, cupIndex, shooterName) {
+  const m = roundsLocal[rIdx]?.matches?.[mIdx]
+  if (!m) return
+  const cupsTarget = cupsTargetForRound(rIdx)
+  const shooterTeamKey = teamKey === 'team1' ? 'team2' : 'team1'
+  const shooterTeamName = m[shooterTeamKey]
+
+  // stateKey  = physical cups of the team whose cup was hit (they lose a cup)
+  // scoreKey  = score counter of the OTHER team (they gain a point)
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  const scoreKey = teamKey === 'team1' ? 'cups_team2' : 'cups_team1'  // opponent scores
+
+  if (!Array.isArray(m[stateKey]) || m[stateKey].length !== cupsTarget) {
+    // Init from opponent's score (how many cups of this team were already hit)
+    const existingHits = teamKey === 'team1' ? (m.cups_team2 || 0) : (m.cups_team1 || 0)
+    m[stateKey] = normalizeKoStateArray(m[stateKey], cupsTarget, existingHits, !!m.is_overtime)
+  }
+  if (!m[stateKey][cupIndex]) return  // already hit
+
+  m[stateKey][cupIndex] = false
+  m[scoreKey] = clampInt(safeNum(m[scoreKey]) + 1, 0, cupsTarget + (m.is_overtime ? 3 : 0))
+
+  const hKey = `${matchId}:${teamKey}`
+  if (!koUndoHistory.value.has(hKey)) koUndoHistory.value.set(hKey, [])
+  koUndoHistory.value.get(hKey).push(cupIndex)
+
+  // All cups hit → conclusion dialog (not immediate winner)
+  const allHit = m[stateKey].every(v => !v)
+  if (allHit) {
+    const step = m.is_overtime ? 'END_QUERY' : 'NACHWURF'
+    pendingKoConclusion.value = { matchId, rIdx, mIdx, teamKey, step, history: [step] }
+    saveSingleKoMatch(rIdx, mIdx, m, shooterName && shooterTeamName ? {
+      action_type: 'cup_hit',
+      team_key: teamKey,
+      player_name: shooterName,
+      team_name: shooterTeamName,
+      credit_count: 1,
+    } : null)
+    return
+  }
+
+  saveSingleKoMatch(rIdx, mIdx, m, shooterName && shooterTeamName ? {
+    action_type: 'cup_hit',
+    team_key: teamKey,
+    player_name: shooterName,
+    team_name: shooterTeamName,
+    credit_count: 1,
+  } : null)
+}
+
+function selectKoShooter(playerName) {
+  selectedKoPlayer.value = playerName
+}
+
+function confirmKoShooter() {
+  if (!pendingKoShooter.value) return
+  const { mode, matchId, rIdx, mIdx, teamKey, cupIndex, shooterTeamName, bonusCupCount } = pendingKoShooter.value
+  if (mode !== 'overtime_credit' && !selectedKoPlayer.value) return
+  const playerName = selectedKoPlayer.value
+  const allocations = mode === 'overtime_credit' ? buildKoOvertimeAllocations() : []
+  if (mode === 'overtime_credit' && (!allocations.length || !isKoOvertimeAllocationComplete())) return
+  pendingKoShooter.value = null
+  selectedKoPlayer.value = null
+  if (mode === 'overtime_credit') {
+    applyKoOvertime(rIdx, mIdx, {
+      teamName: shooterTeamName,
+      teamKey,
+      creditCount: bonusCupCount,
+      allocations,
+    })
+    return
+  }
+  _doKoCupHit(matchId, rIdx, mIdx, teamKey, cupIndex, playerName)
+}
+
+function cancelKoShooter() {
+  pendingKoShooter.value = null
+  selectedKoPlayer.value = null
+}
+
+/* Spielabschluss-Dialog */
+function conclusionKoStep(step) {
+  if (!pendingKoConclusion.value) return
+  const h = [...(pendingKoConclusion.value.history || [])]
+  h.push(step)
+  pendingKoConclusion.value = { ...pendingKoConclusion.value, step, history: h }
+}
+
+function conclusionKoBack() {
+  if (!pendingKoConclusion.value) return
+  const h = [...(pendingKoConclusion.value.history || [])]
+  if (h.length <= 1) return
+  h.pop()
+  pendingKoConclusion.value = { ...pendingKoConclusion.value, step: h[h.length - 1], history: h }
+}
+
+function conclusionKoOvertime() {
+  if (!pendingKoConclusion.value) return
+  const { rIdx, mIdx, teamKey } = pendingKoConclusion.value
+  const m = roundsLocal[rIdx]?.matches?.[mIdx]
+  if (!m) return
+  const overtimeTeamKey = teamKey
+  const overtimeTeamName = m[overtimeTeamKey]
+  const opponentTeamKey = overtimeTeamKey === 'team1' ? 'team2' : 'team1'
+  const remainingOpponentCups = getKoStandingCups(m, opponentTeamKey, cupsTargetForRound(rIdx))
+
+  if (remainingOpponentCups > 0) {
+    const players = resolveKoTeamPlayers(overtimeTeamName)
+    if (players.p1 || players.p2) {
+      pendingKoShooter.value = createKoOvertimeAllocation(overtimeTeamName, players, remainingOpponentCups, {
+        matchId: `${rIdx}:${mIdx}`,
+        rIdx,
+        mIdx,
+      })
+      selectedKoPlayer.value = null
+      return
+    }
+  }
+
+  applyKoOvertime(rIdx, mIdx, {
+    teamName: overtimeTeamName,
+    teamKey: overtimeTeamKey,
+    creditCount: remainingOpponentCups,
+  })
+}
+
+function applyKoOvertime(rIdx, mIdx, creditInfo = null) {
+  const m = roundsLocal[rIdx]?.matches?.[mIdx]
+  if (!m) return
+  if (creditInfo?.creditCount > 0) {
+    const scoreField = creditInfo.teamKey === 'team1' ? 'cups_team1' : 'cups_team2'
+    m[scoreField] = clampInt(
+      safeNum(m[scoreField]) + creditInfo.creditCount,
+      0,
+      cupsTargetForRound(rIdx)
+    )
+  }
+  // Verlängerung: beide Teams bekommen 3 frische Becher
+  const cupsTarget = cupsTargetForRound(rIdx)
+  const overtimeState = buildFrontOvertimeState(cupsTarget)
+  m.cups_state_team1 = [...overtimeState]
+  m.cups_state_team2 = [...overtimeState]
+  m.is_overtime = true
+  m.winner = null
+  pendingKoConclusion.value = null
+  // Clear undo history for this match (overtime resets)
+  const mid = `${rIdx}:${mIdx}`
+  koUndoHistory.value.delete(`${mid}:team1`)
+  koUndoHistory.value.delete(`${mid}:team2`)
+  saveSingleKoMatch(rIdx, mIdx, m, creditInfo?.teamName && Array.isArray(creditInfo?.allocations) && creditInfo.allocations.length ? {
+    action_type: 'overtime_credit',
+    team_name: creditInfo.teamName,
+    credit_count: creditInfo.creditCount,
+    credit_allocations: creditInfo.allocations,
+  } : null)
+}
+
+function finishKoConclusion(confirm) {
+  if (!pendingKoConclusion.value) return
+  if (!confirm) {
+    pendingKoConclusion.value = null
+    return
+  }
+  const { rIdx, mIdx, teamKey } = pendingKoConclusion.value
+  const m = roundsLocal[rIdx]?.matches?.[mIdx]
+  if (!m) return
+  // teamKey = team whose cups were all hit (the loser); winner is the OTHER team
+  m.winner = teamKey === 'team1' ? m.team2 : m.team1
+  m.status = 'done'
+  pendingKoConclusion.value = null
+  recalcPropagation(rIdx)
+  saveSingleKoMatch(rIdx, mIdx, m)
+}
+
+function onKoUndo({ matchId, teamKey }) {
+  // If there's a pending conclusion for this match, just cancel it
+  if (pendingKoConclusion.value?.matchId === matchId) {
+    pendingKoConclusion.value = null
+    return
+  }
+
+  const { rIdx, mIdx, m } = _findKoMatch(matchId)
+  if (!m) return
+  const hKey = `${matchId}:${teamKey}`
+  const history = koUndoHistory.value.get(hKey) || []
+  if (!history.length) return
+
+  const lastIdx = history.pop()
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  const scoreKey = teamKey === 'team1' ? 'cups_team2' : 'cups_team1'  // opponent score
+
+  if (Array.isArray(m[stateKey]) && lastIdx < m[stateKey].length) {
+    m[stateKey][lastIdx] = true
+    m[scoreKey] = clampInt(safeNum(m[scoreKey]) - 1, 0, cupsTargetForRound(rIdx) + (m.is_overtime ? 3 : 0))
+  }
+  m.winner = null
+  recalcPropagation(rIdx)
+  saveSingleKoMatch(rIdx, mIdx, m, {
+    action_type: 'undo',
+    team_key: teamKey,
+    undo_count: 1,
+  })
+}
+
+function onKoRerack({ matchId, teamKey, newState }) {
+  const { rIdx, mIdx, m } = _findKoMatch(matchId)
+  if (!m) return
+  const stateKey = teamKey === 'team1' ? 'cups_state_team1' : 'cups_state_team2'
+  m[stateKey] = [...newState]
+  m[`rerack_used_${teamKey}`] = true
+  saveSingleKoMatch(rIdx, mIdx, m)
+}
+
 /* Computed Helpers */
-const currentRound = computed(() => roundsLocal[activeRoundIndex.value] || { matches: [] })
 const POW2 = [4, 8, 16, 32, 64, 128]
 
 const koSizeComputed = computed(() => {
@@ -232,11 +902,6 @@ watch(finalWinner, (v, oldV) => {
   if (v && v !== oldV) setTimeout(() => (showConfetti.value = true), 80)
 })
 
-function isRoundComplete(round) {
-  if (!round || !round.matches.length) return false
-  return round.matches.every(m => !m.team1 || !m.team2 || m.winner)
-}
-
 /* Helper Functions */
 function roundNameFor(totalRounds, rIdx) {
   const labels = ['Runde der 128', 'Runde der 64', 'Runde der 32', 'Achtelfinale', 'Viertelfinale', 'Halbfinale', 'Finale']
@@ -252,17 +917,22 @@ function seedPairs(teams, size) {
   return pairs
 }
 
+function emptyMatch() {
+  return {
+    team1: null, team2: null, winner: null,
+    table_no: null,
+    cups_team1: 0, cups_team2: 0,
+    cups_state_team1: null, cups_state_team2: null,
+    is_overtime: false,
+    rerack_used_team1: false, rerack_used_team2: false,
+  }
+}
+
 function buildEmptyRound(matchesCount) {
   return {
     bracket_type: 'main',
     round_name: '',
-    matches: Array.from({ length: matchesCount }, () => ({
-      team1: null,
-      team2: null,
-      winner: null,
-      cups_team1: 0,
-      cups_team2: 0
-    }))
+    matches: Array.from({ length: matchesCount }, emptyMatch)
   }
 }
 
@@ -270,13 +940,7 @@ function buildPlacementRound() {
   return {
     bracket_type: 'placement',
     round_name: 'Spiel um Platz 3',
-    matches: [{
-      team1: null,
-      team2: null,
-      winner: null,
-      cups_team1: 0,
-      cups_team2: 0
-    }]
+    matches: [emptyMatch()]
   }
 }
 
@@ -344,6 +1008,7 @@ function updatePlacementRound(roundsArr) {
     match.cups_team1 = 0
     match.cups_team2 = 0
     match.winner = null
+    match.table_no = null
   }
 
   match.team1 = newTeam1
@@ -361,6 +1026,7 @@ function propagateAll(rounds) {
       mm.team1 = null
       mm.team2 = null
       mm.winner = null
+      mm.table_no = null
     })
 
     cur.matches.forEach((m, idx) => {
@@ -389,11 +1055,10 @@ function seedBracket() {
     bracket_type: 'main',
     round_name: roundNameFor(totalRounds, 0),
     matches: pairs.map(p => ({
+      ...emptyMatch(),
       team1: p[0],
       team2: p[1],
       winner: autoWinner(p[0], p[1]),
-      cups_team1: 0,
-      cups_team2: 0
     }))
   })
 
@@ -411,7 +1076,7 @@ function seedBracket() {
 
   propagateAll(rounds)
   roundsLocal.splice(0, roundsLocal.length, ...rounds)
-  activeRoundIndex.value = 0
+  activeMainRoundIndex.value = 0
 }
 
 /* Actions für Cups */
@@ -446,6 +1111,7 @@ function recalcPropagation(startRIdx) {
       mm.team1 = null
       mm.team2 = null
       mm.winner = null
+      mm.table_no = null
     })
 
     cur.matches.forEach((mm, idx) => {
@@ -484,24 +1150,49 @@ async function loadFromServer() {
       const tc = Number(t.tableCount ?? t.table_count)
       if (Number.isFinite(tc) && tc > 0) tableCount.value = tc
     }
+    _tableCountLoading.value = false
 
     let serverRounds = []
+    let serverActiveMainRoundIndex = null
     if (resBracket && resBracket.ok) {
-      serverRounds = (await resBracket.json())?.rounds || []
+      const bracketData = await resBracket.json().catch(() => null)
+      serverRounds = bracketData?.rounds || []
+      serverActiveMainRoundIndex = bracketData?.active_main_round_index ?? bracketData?.activeMainRoundIndex ?? null
     }
 
     if (serverRounds.length > 0) {
       let all = serverRounds.map(r => ({
         bracket_type: r.bracket_type || 'main',
         round_name: r.round_name || '',
-        matches: (r.matches || []).map(m => ({
-          id: m.id ?? null,
-          team1: m.team1 ?? null,
-          team2: m.team2 ?? null,
-          winner: m.winner ?? null,
-          cups_team1: +m.cups_team1 || 0,
-          cups_team2: +m.cups_team2 || 0
-        }))
+        matches: (r.matches || []).map(m => {
+          const team1 = m.team1 ?? null
+          const team2 = m.team2 ?? null
+          const cups1 = +m.cups_team1 || 0
+          const cups2 = +m.cups_team2 || 0
+          const status = m.status ?? (m.winner ? 'done' : 'pending')
+          const winner =
+            (m.winner === team1 || m.winner === team2)
+              ? m.winner
+              : (status === 'done' && team1 && team2 && cups1 !== cups2
+                ? (cups1 > cups2 ? team1 : team2)
+                : null)
+
+          return {
+            id: m.id ?? null,
+            team1,
+            team2,
+            winner,
+            status,
+            table_no: Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0 ? Number(m.table_no) : null,
+            cups_team1: cups1,
+            cups_team2: cups2,
+            cups_state_team1: Array.isArray(m.cups_state_team1) && m.cups_state_team1.length ? m.cups_state_team1 : null,
+            cups_state_team2: Array.isArray(m.cups_state_team2) && m.cups_state_team2.length ? m.cups_state_team2 : null,
+            is_overtime: !!m.is_overtime,
+            rerack_used_team1: false,
+            rerack_used_team2: false,
+          }
+        })
       }))
 
       let mainRounds = all.filter(r => r.bracket_type !== 'placement')
@@ -531,9 +1222,10 @@ async function loadFromServer() {
       const rounds = [...mainRounds, ...placementRounds]
       propagateAll(rounds)
       roundsLocal.splice(0, roundsLocal.length, ...rounds)
-
-      const firstIncomplete = roundsLocal.findIndex(r => !isRoundComplete(r))
-      activeRoundIndex.value = firstIncomplete >= 0 ? firstIncomplete : (roundsLocal.length - 1)
+      const parsedActiveRoundIndex = Number(serverActiveMainRoundIndex)
+      activeMainRoundIndex.value = Number.isInteger(parsedActiveRoundIndex)
+        ? parsedActiveRoundIndex
+        : getKoStageMeta(roundsLocal, null).activeMainRoundIndex
     } else if (initialTeams.value.length > 0) {
       seedBracket()
     }
@@ -542,13 +1234,17 @@ async function loadFromServer() {
     if (roundsLocal.length === 0 && initialTeams.value.length > 0) seedBracket()
   } finally {
     loading.value = false
+    _tableCountLoading.value = false
   }
 }
 
 async function saveToServer() {
   loading.value = true
   try {
-    const payload = { rounds: roundsLocal }
+    const payload = {
+      rounds: roundsLocal,
+      active_main_round_index: activeMainRoundIndex.value,
+    }
     await fetch(`${API}/tournaments/${props.tournamentId}/save-ko-bracket`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -563,13 +1259,56 @@ async function saveToServer() {
   }
 }
 
-async function saveSingleKoMatch(rIdx, mIdx, m) {
+async function startNextKoRound() {
+  if (!canStartNextKoRound.value) return
+  loading.value = true
   try {
+    const mainInfos = getKoMainRoundInfos(roundsLocal)
+    const nextMainInfo = mainInfos[activeMainRoundIndex.value + 1] || null
+    const placementRound = roundsLocal.find(round => round?.bracket_type === 'placement') || null
+    const res = await fetch(`${API}/tournaments/${props.tournamentId}/start-ko-next-round`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        active_main_round_index: activeMainRoundIndex.value,
+        next_main_round: serializeKoRoundForRelease(nextMainInfo?.round),
+        placement_round: nextMainInfo && (activeMainRoundIndex.value + 1 === mainInfos.length - 1)
+          ? serializeKoRoundForRelease(placementRound)
+          : null,
+      }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || 'start next ko round failed')
+    const nextIndex = Number(data?.active_main_round_index ?? data?.activeMainRoundIndex)
+    if (Number.isInteger(nextIndex)) activeMainRoundIndex.value = nextIndex
+    store.applyState({ ko_phase: data || {} })
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function saveSingleKoMatch(rIdx, mIdx, m, eventData = null) {
+  try {
+    const tableNo = Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0
+      ? Number(m.table_no)
+      : (koTableMap.value.get(`${rIdx}:${mIdx}`) ?? null)
+    m.table_no = tableNo
     const body = {
+      match_id: m.id ?? null,
       round_index: rIdx,
       match_index: mIdx,
       round_name: roundsLocal[rIdx]?.round_name || '',
-      ...m
+      team1: m.team1, team2: m.team2, winner: m.winner,
+      table_no: tableNo,
+      is_overtime: !!m.is_overtime,
+      cups_team1: m.cups_team1, cups_team2: m.cups_team2,
+      cups_state_team1: Array.isArray(m.cups_state_team1) ? m.cups_state_team1 : null,
+      cups_state_team2: Array.isArray(m.cups_state_team2) ? m.cups_state_team2 : null,
+      shooter: eventData?.player_name || null,
+      shooter_team: eventData?.team_name || null,
+      event_data: eventData || null,
     }
     const res = await fetch(`${API}/tournaments/${props.tournamentId}/ko-match`, {
       method: 'POST',
@@ -578,6 +1317,10 @@ async function saveSingleKoMatch(rIdx, mIdx, m) {
     })
     if (!res.ok && res.status !== 404) throw new Error('Failed single save')
     if (res.status === 404) await saveToServer()
+    const data = res.ok ? await res.json().catch(() => null) : null
+    if (data && Object.prototype.hasOwnProperty.call(data, 'top_players')) {
+      store.topPlayers = data.top_players || []
+    }
   } catch (e) {
     console.error(e)
   }
@@ -615,36 +1358,6 @@ onMounted(async () => {
   color: #fff;
 }
 
-/* Bracket Card */
-.ko-bracket-wrapper {
-  display: flex;
-  justify-content: center;
-}
-.ko-bracket-card {
-  width: 100%;
-  max-width: 1250px;
-  background: #141414;
-  border: 1px solid rgba(108, 117, 125, 0.5);
-  transition: box-shadow 0.3s ease;
-}
-.ko-bracket-card:hover {
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-}
-
-/* Container – keine künstliche Höhe, der Inhalt darf nach unten wachsen */
-.bracket-container {
-  overflow-y: visible;
-  overflow-x: hidden;
-}
-
-/* dezenter Overlay-Verlauf oben */
-.bracket-gradient-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.05), transparent 60%);
-}
-
 /* Utilities */
 .transition-all {
   transition: all 0.2s ease;
@@ -675,5 +1388,61 @@ onMounted(async () => {
 }
 .ko-live-table-wrap {
   flex: 0 0 auto;
+}
+.ko-live-table-label {
+  text-align: center;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.ko-shooter-overlay {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffc107 !important;
+}
+
+.ko-credit-card {
+  min-width: 180px;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ko-credit-count {
+  min-width: 3.5rem;
+}
+
+.ko-tab-root {
+  width: 100%;
+}
+
+.ko-section-head {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #f8f9fa;
+}
+
+.ko-bracket-wrap {
+  width: 100%;
+  overflow: visible;
+}
+
+.ko-manual-panel {
+  border-top: 1px solid rgba(108, 117, 125, 0.35);
+  padding-top: 0.75rem;
+}
+
+.ko-manual-panel__summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.ko-manual-panel__body {
+  background: rgba(17, 24, 39, 0.82) !important;
 }
 </style>

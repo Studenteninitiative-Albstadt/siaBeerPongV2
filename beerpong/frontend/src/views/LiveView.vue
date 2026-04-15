@@ -277,6 +277,7 @@ import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
 import { getAssignedActiveMatches, getUpcomingMatches } from '../utils/tableAssignments.js'
 import LiveViewKO from '../components/LiveViewKO.vue'
+import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
 const auth   = useAuthStore()
 const store  = useTournamentStore()
@@ -338,7 +339,7 @@ const liveviewEvents = [
 ]
 
 const wsConnected = computed(() => store.wsConnected)
-const koRounds    = computed(() => store.koPhase?.rounds ?? [])
+const koRounds    = computed(() => normalizeKoRoundsForDisplay(store.koPhase?.rounds ?? []))
 
 const groupStandings = computed(() => {
   const pick = (obj, keys, fallback = 0) => {

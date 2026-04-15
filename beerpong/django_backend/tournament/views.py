@@ -13,7 +13,17 @@ from asgiref.sync import async_to_sync
 from .models import Tournament, Team, Match, Player, CupHit, Table, Tiebreak
 from .permissions import IsOrga, IsOrgaOrLiveview
 from .serializers import TournamentSerializer, CustomTokenObtainPairSerializer
-from .services import compute_structure, generate_groups, compute_standings, get_full_state
+from .services import (
+    compute_structure,
+    generate_groups,
+    compute_standings,
+    get_full_state,
+    sort_ko_rounds,
+    derive_active_ko_main_round_index,
+    get_ko_control_payload,
+    is_ko_round_complete,
+    set_ko_control_payload,
+)
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────
@@ -185,8 +195,11 @@ class TournamentViewSet(ViewSet):
     def save_group_phase(self, request, pk=None):
         """
         Called by GroupsView with the full group_phase payload.
-        We use the team names embedded in the payload to generate
-        (or re-generate) the groups and matches in the DB.
+        During initial setup (no matches yet) we call generate_groups to create the
+        Match objects.  During live play the auto-save calls this endpoint every few
+        hundred ms – in that case we must NOT call generate_groups because it deletes
+        and recreates all matches (changing their PKs), which causes LiveTable3D to
+        remount and breaks real-time cup-state sync.
         """
         t = self._get_or_404(pk)
         payload = request.data
@@ -201,10 +214,16 @@ class TournamentViewSet(ViewSet):
         else:
             team_names = list(Team.objects.filter(tournament=t).values_list('name', flat=True))
 
-        if team_names:
+        # Only regenerate the full group structure when no group matches exist yet.
+        # If matches are already present, just update them in-place to preserve PKs.
+        existing_match_count = Match.objects.filter(
+            tournament=t, phase=Match.PHASE_GROUP
+        ).count()
+
+        if team_names and existing_match_count == 0:
             generate_groups(t, team_names)
 
-        # Also persist raw match results that came with the payload
+        # Persist raw match results that came with the payload
         matches_data = payload.get('group_phase', payload).get('matches', payload.get('matches', {}))
         if isinstance(matches_data, dict):
             for gname, match_list in matches_data.items():
@@ -225,45 +244,10 @@ class TournamentViewSet(ViewSet):
         if result is None:
             return Response({'error': 'Team not found'}, status=404)
 
-        # Optional: record which player scored a cup
-        event_data = body.get('event_data') or {}
-        action_type = event_data.get('action_type')
-        shooter_name = (body.get('shooter') or '').strip()
-        shooter_team_name = (body.get('shooter_team') or '').strip()
         match_id = result.get('id')
-
-        if action_type == 'cup_hit' and shooter_name and shooter_team_name and match_id:
-            try:
-                player, _ = Player.objects.get_or_create(name=shooter_name)
-                team = Team.objects.get(tournament=t, name=shooter_team_name)
-                match = Match.objects.get(id=match_id)
-                CupHit.objects.create(match=match, player=player, team=team)
-                player.total_cups_hit += 1
-                player.save(update_fields=['total_cups_hit'])
-            except (Team.DoesNotExist, Match.DoesNotExist):
-                pass
-        elif action_type == 'undo' and match_id:
-            try:
-                # team_key in event_data identifies whose action is undone
-                # but we need to know WHICH player hit the cup we're undoing.
-                # We find the last CupHit for this match and the team that hit (the shooter team).
-                # team_key in event_data is the team whose cup is RESTORED (the hit was against them).
-                # So the shooter was the OTHER team.
-                restored_team_key = event_data.get('team_key') # 'team1' or 'team2'
-                shooter_team_key = 'team2' if restored_team_key == 'team1' else 'team1'
-
-                # Get the actual Team object for the shooter
-                match = Match.objects.get(id=match_id)
-                shooter_team = match.team1 if shooter_team_key == 'team1' else match.team2
-
-                last_hit = CupHit.objects.filter(match=match, team=shooter_team).order_by('-id').first()
-                if last_hit:
-                    player = last_hit.player
-                    player.total_cups_hit = max(0, player.total_cups_hit - 1)
-                    player.save(update_fields=['total_cups_hit'])
-                    last_hit.delete()
-            except Exception:
-                pass
+        if match_id:
+            match = Match.objects.filter(id=match_id).first()
+            _apply_match_event(t, match, body)
 
         standings = compute_standings(t)
         full_state = get_full_state(t)
@@ -361,6 +345,10 @@ class TournamentViewSet(ViewSet):
     def save_ko(self, request, pk=None):
         t = self._get_or_404(pk)
         rounds = request.data.get('rounds') or []
+        incoming_active_round_index = request.data.get(
+            'active_main_round_index',
+            request.data.get('activeMainRoundIndex'),
+        )
         Match.objects.filter(tournament=t, phase=Match.PHASE_KO).delete()
         Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
 
@@ -373,15 +361,43 @@ class TournamentViewSet(ViewSet):
                 if not (t1 and t2):
                     continue
                 winner = Team.objects.filter(tournament=t, name=m.get('winner')).first()
+                raw_table_no = m.get('table_no', m.get('tableNo', m.get('table_number', m.get('tableNumber'))))
+                try:
+                    table_no = int(raw_table_no) if raw_table_no is not None else None
+                except (TypeError, ValueError):
+                    table_no = None
+                table = None
+                if table_no and table_no > 0:
+                    table, _ = Table.objects.get_or_create(
+                        tournament=t,
+                        name=f'Tisch {table_no}',
+                        defaults={'is_active': True},
+                    )
                 Match.objects.create(
                     tournament=t, phase=Match.PHASE_KO,
                     team1=t1, team2=t2, winner=winner,
                     cups_team1=int(m.get('cups_team1') or 0),
                     cups_team2=int(m.get('cups_team2') or 0),
+                    cups_state_team1=m.get('cups_state_team1') if isinstance(m.get('cups_state_team1'), list) else [],
+                    cups_state_team2=m.get('cups_state_team2') if isinstance(m.get('cups_state_team2'), list) else [],
+                    team1_rerack_used=bool(m.get('rerack_used_team1', False)),
+                    team2_rerack_used=bool(m.get('rerack_used_team2', False)),
+                    is_overtime=bool(m.get('is_overtime', False)),
                     ko_round=round_name, ko_bracket_type=bracket_type, ko_match_index=idx,
+                    table=table,
                     status='done' if winner else 'pending',
                     history_team1=[], history_team2=[]
                 )
+
+        sorted_rounds = sort_ko_rounds(rounds)
+        existing_control = get_ko_control_payload(t)
+        active_main_round_index = derive_active_ko_main_round_index(
+            sorted_rounds,
+            incoming_active_round_index
+            if incoming_active_round_index is not None
+            else existing_control.get('active_main_round_index', existing_control.get('activeMainRoundIndex')),
+        )
+        set_ko_control_payload(t, {'active_main_round_index': active_main_round_index})
 
         t.status = Tournament.STATUS_KO
         t.save()
@@ -393,47 +409,191 @@ class TournamentViewSet(ViewSet):
         t = self._get_or_404(pk)
         return Response(get_full_state(t)['ko_phase'])
 
+    @action(detail=True, methods=['post'], url_path='start-ko-next-round')
+    def start_ko_next_round(self, request, pk=None):
+        t = self._get_or_404(pk)
+        ko_state = get_full_state(t).get('ko_phase') or {}
+        rounds = sort_ko_rounds(ko_state.get('rounds') or [])
+        main_rounds = [r for r in rounds if (r.get('bracket_type') or 'main') != 'placement']
+        if not main_rounds:
+            return Response({'error': 'no ko rounds available'}, status=400)
+
+        active_main_round_index = derive_active_ko_main_round_index(
+            rounds,
+            ko_state.get('active_main_round_index', ko_state.get('activeMainRoundIndex')),
+        )
+        if active_main_round_index >= len(main_rounds):
+            return Response({'error': 'active round out of range'}, status=400)
+
+        current_round = main_rounds[active_main_round_index]
+        if not is_ko_round_complete(current_round):
+            return Response({'error': 'current round is not complete'}, status=400)
+
+        if active_main_round_index >= len(main_rounds) - 1:
+            return Response({'error': 'no next round available'}, status=400)
+
+        next_main_round = request.data.get('next_main_round') or request.data.get('nextMainRound') or {}
+        placement_round = request.data.get('placement_round') or request.data.get('placementRound') or {}
+        rounds_to_materialize = []
+        if isinstance(next_main_round, dict):
+            rounds_to_materialize.append(next_main_round)
+        if isinstance(placement_round, dict):
+            rounds_to_materialize.append(placement_round)
+
+        for round_payload in rounds_to_materialize:
+            round_name = str(round_payload.get('round_name') or '')
+            bracket_type = str(round_payload.get('bracket_type') or 'main')
+            for idx, match_payload in enumerate(round_payload.get('matches') or []):
+                team1_name = match_payload.get('team1')
+                team2_name = match_payload.get('team2')
+                if not team1_name or not team2_name:
+                    continue
+                team1 = Team.objects.filter(tournament=t, name=team1_name).first()
+                team2 = Team.objects.filter(tournament=t, name=team2_name).first()
+                if not (team1 and team2):
+                    continue
+                ko_match_index = match_payload.get('ko_match_index', idx)
+                try:
+                    ko_match_index = int(ko_match_index)
+                except (TypeError, ValueError):
+                    ko_match_index = idx
+
+                match_obj, created = Match.objects.get_or_create(
+                    tournament=t,
+                    phase=Match.PHASE_KO,
+                    ko_bracket_type=bracket_type,
+                    ko_round=round_name,
+                    ko_match_index=ko_match_index,
+                    defaults={
+                        'team1': team1,
+                        'team2': team2,
+                        'winner': None,
+                        'cups_team1': 0,
+                        'cups_team2': 0,
+                        'cups_state_team1': [],
+                        'cups_state_team2': [],
+                        'team1_rerack_used': False,
+                        'team2_rerack_used': False,
+                        'is_overtime': False,
+                        'status': 'pending',
+                        'history_team1': [],
+                        'history_team2': [],
+                        'hit_history_team1': [],
+                        'hit_history_team2': [],
+                        'table': None,
+                    },
+                )
+                if not created:
+                    # Only remap unreleased matches that have not started yet.
+                    if match_obj.winner or match_obj.status == 'done':
+                        continue
+                    if match_obj.cups_team1 or match_obj.cups_team2 or match_obj.is_overtime:
+                        continue
+                    match_obj.team1 = team1
+                    match_obj.team2 = team2
+                    match_obj.table = None
+                    match_obj.status = 'pending'
+                    match_obj.save(update_fields=['team1', 'team2', 'table', 'status'])
+
+        next_index = active_main_round_index + 1
+        set_ko_control_payload(t, {'active_main_round_index': next_index})
+        full_state = get_full_state(t)
+        broadcast(t.id, 'ko_updated', full_state)
+        return Response(full_state.get('ko_phase') or {})
+
     @action(detail=True, methods=['post'], url_path='ko-match')
     def ko_match(self, request, pk=None):
         """Single KO match update (round_index + match_index)."""
         t = self._get_or_404(pk)
         body = request.data
+        raw_match_id = body.get('match_id')
+        try:
+            match_id = int(raw_match_id) if raw_match_id is not None else None
+        except (TypeError, ValueError):
+            match_id = None
         r_idx = int(body.get('round_index', -1))
         m_idx = int(body.get('match_index', -1))
-        if r_idx < 0 or m_idx < 0:
+        if match_id is None and (r_idx < 0 or m_idx < 0):
             return Response({'error': 'round_index and match_index required'}, status=400)
 
-        # Get distinct round keys in creation order
-        rounds = list(
-            Match.objects.filter(tournament=t, phase=Match.PHASE_KO)
-            .values('ko_bracket_type', 'ko_round')
-            .distinct()
-            .order_by('id')
-        )
-        if r_idx >= len(rounds):
-            return Response({'error': 'round index out of range'}, status=404)
+        match = None
+        if match_id is not None:
+            match = Match.objects.filter(
+                tournament=t,
+                phase=Match.PHASE_KO,
+                id=match_id,
+            ).first()
 
-        ri = rounds[r_idx]
-        match = Match.objects.filter(
-            tournament=t, phase=Match.PHASE_KO,
-            ko_bracket_type=ri['ko_bracket_type'],
-            ko_round=ri['ko_round'],
-            ko_match_index=m_idx,
-        ).first()
+        if match is None:
+            # Get distinct round keys in creation order
+            rounds = list(
+                Match.objects.filter(tournament=t, phase=Match.PHASE_KO)
+                .values('ko_bracket_type', 'ko_round')
+                .distinct()
+                .order_by('id')
+            )
+            if r_idx >= len(rounds):
+                return Response({'error': 'round index out of range'}, status=404)
+
+            ri = rounds[r_idx]
+            match = Match.objects.filter(
+                tournament=t, phase=Match.PHASE_KO,
+                ko_bracket_type=ri['ko_bracket_type'],
+                ko_round=ri['ko_round'],
+                ko_match_index=m_idx,
+            ).first()
         if not match:
             return Response({'error': 'match not found'}, status=404)
 
         winner_name = body.get('winner')
         winner = Team.objects.filter(tournament=t, name=winner_name).first() if winner_name else None
+        if winner and winner.id not in {match.team1_id, match.team2_id}:
+            winner = None
+            winner_name = None
+        table_no_provided = any(
+            key in body
+            for key in ('table_no', 'tableNo', 'table_number', 'tableNumber')
+        )
+        raw_table_no = body.get('table_no', body.get('tableNo', body.get('table_number', body.get('tableNumber'))))
+        try:
+            table_no = int(raw_table_no) if raw_table_no is not None else None
+        except (TypeError, ValueError):
+            table_no = None
+        table = match.table
+        if table_no and table_no > 0:
+            table, _ = Table.objects.get_or_create(
+                tournament=t,
+                name=f'Tisch {table_no}',
+                defaults={'is_active': True},
+            )
+        elif table_no_provided:
+            table = None
         match.winner = winner
         match.cups_team1 = int(body.get('cups_team1') or 0)
         match.cups_team2 = int(body.get('cups_team2') or 0)
+        match.table = table
         match.status = 'done' if winner else 'pending'
+        match.is_overtime = bool(body.get('is_overtime', match.is_overtime))
+        cups_state1 = body.get('cups_state_team1')
+        cups_state2 = body.get('cups_state_team2')
+        if isinstance(cups_state1, list):
+            match.cups_state_team1 = cups_state1
+        if isinstance(cups_state2, list):
+            match.cups_state_team2 = cups_state2
         match.save()
+
+        _apply_match_event(t, match, body)
+
+        full_state = get_full_state(t)
 
         result = {
             'id': match.id, 'team1': match.team1.name, 'team2': match.team2.name,
-            'winner': winner_name, 'cups_team1': match.cups_team1, 'cups_team2': match.cups_team2,
+            'winner': winner_name, 'status': match.status,
+            'table_no': int(match.table.name.replace('Tisch ', '')) if match.table and str(match.table.name).startswith('Tisch ') else None,
+            'cups_team1': match.cups_team1, 'cups_team2': match.cups_team2,
+            'cups_state_team1': match.cups_state_team1, 'cups_state_team2': match.cups_state_team2,
+            'is_overtime': match.is_overtime,
+            'top_players': full_state['top_players'],
         }
         broadcast(t.id, 'ko_match_updated', result)
         return Response(result)
@@ -582,6 +742,99 @@ def _update_group_match_from_dict(tournament, gname: str, body: dict):
         'is_overtime': match.is_overtime,
         'table_no': int(match.table.name.replace('Tisch ', '')) if match.table and str(match.table.name).startswith('Tisch ') else None,
     }
+
+def _parse_positive_int(value, default=0):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _record_cup_hits(tournament, match, shooter_name: str, shooter_team_name: str, hit_count: int = 1):
+    if not match or not shooter_name or not shooter_team_name:
+        return
+
+    hit_count = _parse_positive_int(hit_count, default=1)
+    if hit_count <= 0:
+        return
+
+    try:
+        player, _ = Player.objects.get_or_create(name=shooter_name)
+        team = Team.objects.get(tournament=tournament, name=shooter_team_name)
+    except Team.DoesNotExist:
+        return
+
+    CupHit.objects.bulk_create([
+        CupHit(match=match, player=player, team=team)
+        for _ in range(hit_count)
+    ])
+    player.total_cups_hit = CupHit.objects.filter(player=player).count()
+    player.save(update_fields=['total_cups_hit'])
+
+
+def _undo_cup_hits(match, restored_team_key: str, undo_count: int = 1):
+    if not match:
+        return
+
+    undo_count = _parse_positive_int(undo_count, default=1)
+    if undo_count <= 0:
+        return
+
+    shooter_team_key = 'team2' if restored_team_key == 'team1' else 'team1'
+    shooter_team = match.team1 if shooter_team_key == 'team1' else match.team2
+    if not shooter_team:
+        return
+
+    hits = list(CupHit.objects.filter(match=match, team=shooter_team).order_by('-id')[:undo_count])
+    for hit in hits:
+        player = hit.player
+        hit.delete()
+        player.total_cups_hit = CupHit.objects.filter(player=player).count()
+        player.save(update_fields=['total_cups_hit'])
+
+
+def _normalize_credit_allocations(raw_allocations):
+    if not isinstance(raw_allocations, list):
+        return []
+
+    allocations = []
+    for entry in raw_allocations:
+        if not isinstance(entry, dict):
+            continue
+        player_name = str(entry.get('player_name') or entry.get('player') or '').strip()
+        count = _parse_positive_int(entry.get('count'), default=0)
+        if player_name and count > 0:
+            allocations.append((player_name, count))
+    return allocations
+
+
+def _apply_match_event(tournament, match, body: dict):
+    event_data = body.get('event_data') or {}
+    action_type = str(event_data.get('action_type') or '').strip()
+    if not action_type or not match:
+        return
+
+    shooter_name = (body.get('shooter') or event_data.get('player_name') or '').strip()
+    shooter_team_name = (body.get('shooter_team') or event_data.get('team_name') or '').strip()
+
+    if action_type == 'overtime_credit':
+        allocations = _normalize_credit_allocations(event_data.get('credit_allocations'))
+        if allocations and shooter_team_name:
+            for player_name, hit_count in allocations:
+                _record_cup_hits(tournament, match, player_name, shooter_team_name, hit_count)
+            return
+
+    if action_type in {'cup_hit', 'overtime_credit'}:
+        hit_count = _parse_positive_int(event_data.get('credit_count'), default=1)
+        _record_cup_hits(tournament, match, shooter_name, shooter_team_name, hit_count)
+        return
+
+    if action_type == 'undo':
+        restored_team_key = str(event_data.get('team_key') or '').strip()
+        if restored_team_key in {'team1', 'team2'}:
+            undo_count = _parse_positive_int(event_data.get('undo_count'), default=1)
+            _undo_cup_hits(match, restored_team_key, undo_count)
 
 
 def health_check(request):
