@@ -290,7 +290,24 @@ async function handleFinish(finalTournament) {
         player1: players[name]?.player1 ?? '',
         player2: players[name]?.player2 ?? '',
       }))
-      await api.tournaments.saveTeams(tId, teamsPayload).catch(() => {})
+      await api.tournaments.saveTeams(tId, teamsPayload)
+      const persistedTeams = await api.tournaments.loadTeams(tId).catch(() => ({ teams: [] }))
+      const persistedTeamPlayers = Object.fromEntries(
+        (persistedTeams?.teams || []).map(team => [
+          team.name,
+          {
+            player1: team.player1 || '',
+            player2: team.player2 || '',
+          },
+        ])
+      )
+      const hasMismatch = teamList.some(name =>
+        (persistedTeamPlayers[name]?.player1 || '') !== (players[name]?.player1 || '') ||
+        (persistedTeamPlayers[name]?.player2 || '') !== (players[name]?.player2 || '')
+      )
+      if (hasMismatch) {
+        throw new Error('team player persistence failed')
+      }
     }
     teamPlayers.value = players
 

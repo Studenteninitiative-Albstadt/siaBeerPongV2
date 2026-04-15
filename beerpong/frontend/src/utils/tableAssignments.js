@@ -149,10 +149,10 @@ export function flattenKORounds(rounds = []) {
   return all
 }
 
-export function getKOActiveMatches(rounds = [], tableCount = 0, activeMainRoundIndex = null) {
+export function getKOActiveMatches(rounds = [], tableCount = 0, activeMainRoundIndex = null, activeStageKind = null) {
   const maxTables = Math.max(0, Number(tableCount) || 0)
   if (maxTables === 0) return []
-  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex, activeStageKind)
   const assignments = buildStableKOAssignmentMap(stageRounds, maxTables)
   return flattenKORounds(stageRounds)
     .filter(match => !match.winner && match.team1 && match.team2)
@@ -164,18 +164,20 @@ export function getKOActiveMatches(rounds = [], tableCount = 0, activeMainRoundI
     .sort((a, b) => getTableNo(a) - getTableNo(b))
 }
 
-export function getKOUpcomingMatches(rounds = [], tableCount = 0, limit = 10, activeMainRoundIndex = null) {
-  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
-  const active = getKOActiveMatches(stageRounds, tableCount)
+export function getKOUpcomingMatches(rounds = [], tableCount = 0, limit = 10, activeMainRoundIndex = null, activeStageKind = null) {
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex, activeStageKind)
+  const active = getKOActiveMatches(rounds, tableCount, activeMainRoundIndex, activeStageKind)
   const activeKeys = new Set(active.map(match => matchKey(match)))
   return flattenKORounds(stageRounds)
     .filter(match => !match.winner && match.team1 && match.team2 && !activeKeys.has(matchKey(match)))
     .slice(0, limit)
 }
 
-export function buildStableKOAssignmentMap(rounds = [], tableCount = 0, activeMainRoundIndex = null) {
+export function buildStableKOAssignmentMap(rounds = [], tableCount = 0, activeMainRoundIndex = undefined, activeStageKind = undefined) {
   const maxTables = Math.max(0, Number(tableCount) || 0)
-  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex)
+  const stageRounds = activeMainRoundIndex === undefined && activeStageKind === undefined
+    ? rounds
+    : filterKoRoundsForActiveStage(rounds, activeMainRoundIndex, activeStageKind)
   const pending = flattenKORounds(stageRounds).filter(match => !match.winner && match.team1 && match.team2)
   const assignedByTable = new Map()
   const occupiedTeams = new Set()

@@ -231,7 +231,7 @@
             <div class="card bg-black border-secondary h-100 text-center p-3">
               <h6 class="text-secondary mb-2 small">Mobile Ansicht</h6>
               <canvas ref="qrCanvas" class="mx-auto d-block liveview-qr"></canvas>
-              <div class="mt-2">
+              <div class="mt-1">
                 <small class="text-secondary d-block liveview-qr-url">{{ mobileUrl }}</small>
               </div>
             </div>
@@ -609,9 +609,18 @@ watch(groupEntries, () => {
   min-height: 0;
   display: flex;
   flex-wrap: nowrap;
-  gap: clamp(10px, 1.5vw, 24px);
-  align-items: flex-start;
-  overflow: auto hidden;
+  gap: clamp(15px, 2vw, 32px);
+  align-items: center;
+  justify-content: center;
+  overflow: hidden; /* Prevent any bleed through */
+  padding: 10px 0;
+}
+
+/* Make tables larger in beam mode inside LiveView (group phase) */
+.lv-tables-scroll :deep(.beer-table--beam) {
+  /* Scales with width (14vw) but capped by height (approx 18vh with 2.3 ratio) */
+  --tw:    clamp(140px, min(14vw, 18vh), 240px);
+  --ratio: 2.3;
 }
 
 .lv-no-games {
@@ -661,7 +670,7 @@ watch(groupEntries, () => {
 
 /* Zeile 2: Gruppenstaende + QR-Code */
 .lv-row-bottom {
-  flex: 0 0 clamp(180px, 34vh, 310px);
+  flex: 0 0 clamp(135px, 25.5vh, 230px);
   min-height: 0;
   display: flex;
   gap: clamp(8px, 1vw, 14px);
@@ -805,9 +814,13 @@ watch(groupEntries, () => {
 }
 
 .liveview-qr-url {
-  font-size: 0.55rem;
+  font-size: 0.38rem;
   word-break: break-all;
-  color: rgba(255,255,255,0.35) !important;
+  overflow-wrap: anywhere;
+  color: rgba(255,255,255,0.22) !important;
+  line-height: 1.1;
+  display: block;
+  max-width: 100%;
 }
 
 /* Carousel inside .lv-standings-col */

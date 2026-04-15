@@ -41,6 +41,51 @@
       </div>
     </div>
 
+    <details class="card bg-dark border-secondary mb-4 text-light">
+      <summary class="card-header bg-dark border-secondary" style="cursor:pointer;">
+        Team-Spieler bearbeiten
+      </summary>
+      <div class="card-body">
+        <div class="small text-secondary mb-3">
+          Diese Zuordnung wird nur auf den Teams gespeichert. Gruppenspiele und Ergebnisse bleiben unverändert.
+        </div>
+        <div class="row g-3">
+          <div v-for="teamName in teams" :key="`team-player-${teamName}`" class="col-lg-6">
+            <div v-if="teamPlayerDrafts[teamName]" class="border border-secondary rounded p-3 h-100">
+              <div class="fw-bold text-white mb-3">{{ teamName }}</div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small text-secondary">Spieler 1</label>
+                  <input
+                    v-model="teamPlayerDrafts[teamName].player1"
+                    type="text"
+                    class="form-control bg-dark text-light border-secondary"
+                  >
+                </div>
+                <div class="col-6">
+                  <label class="form-label small text-secondary">Spieler 2</label>
+                  <input
+                    v-model="teamPlayerDrafts[teamName].player2"
+                    type="text"
+                    class="form-control bg-dark text-light border-secondary"
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-3 mt-3">
+          <button class="btn btn-outline-light" @click="syncTeamPlayerDrafts">Zurücksetzen</button>
+          <button class="btn btn-primary" :disabled="teamPlayerSaveState === 'saving'" @click="saveTeamPlayersOnly">
+            Spieler speichern
+          </button>
+          <small v-if="teamPlayerSaveState === 'saving'" class="text-info">Speichere…</small>
+          <small v-else-if="teamPlayerSaveState === 'saved'" class="text-success">Spieler gespeichert</small>
+          <small v-else-if="teamPlayerSaveState === 'error'" class="text-danger">Speichern fehlgeschlagen</small>
+        </div>
+      </div>
+    </details>
+
     <!-- Ladehinweise -->
     <div v-if="loading" class="alert alert-dark border-secondary my-3">Lade…</div>
     <div v-else-if="renderGroups.length === 0" class="alert alert-dark border-secondary my-3">
@@ -581,6 +626,7 @@ import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { api } from '../../api.js'
 import MatchTableControls from '../MatchTableControls.vue'
 import GroupStandingsTable from '../GroupStandingsTable.vue'
+import { useTournamentStore } from '../../stores/tournament.js'
 import {
   buildStableTableAssignmentMap,
   getAssignedActiveMatches,
@@ -591,6 +637,7 @@ import {
 
 /** API-Base — Vite proxy routes /tournaments/* to Django */
 const API = import.meta.env.VITE_API_BASE || ''
+const store = useTournamentStore()
 
 /** Props */
 const props = defineProps({
@@ -621,6 +668,9 @@ const lastCupElimState = ref({})
 
 /** Interaktiver Shoot-Off-State fuer gruppenuebergreifenden Play-In-Cutoff */
 const playInShootOffState = ref(null)
+
+const teamPlayerDrafts = ref({})
+const teamPlayerSaveState = ref('idle')
 
 /** Save-Status + Timer */
 const saveState = ref('idle')
@@ -724,6 +774,59 @@ const activeTeamNames = computed(() => {
   }
   return Array.from(teams)
 })
+
+function getMergedTeamPlayers() {
+  return {
+    ...(store.teamPlayers || {}),
+    ...(props.teamPlayers || {}),
+  }
+}
+
+function syncTeamPlayerDrafts() {
+  const merged = getMergedTeamPlayers()
+  const next = {}
+  const names = Array.from(new Set([...(props.teams || []), ...Object.keys(merged)]))
+  for (const name of names) {
+    const current = merged[name] || {}
+    next[name] = {
+      player1: current.player1 || '',
+      player2: current.player2 || '',
+    }
+  }
+  teamPlayerDrafts.value = next
+}
+
+watch(
+  () => props.tournamentId,
+  () => {
+    syncTeamPlayerDrafts()
+  },
+  { immediate: true }
+)
+
+async function saveTeamPlayersOnly() {
+  if (!props.tournamentId) return
+  teamPlayerSaveState.value = 'saving'
+  try {
+    const teamsPayload = Object.entries(teamPlayerDrafts.value || {}).map(([name, players]) => ({
+      name,
+      player1: (players?.player1 || '').trim(),
+      player2: (players?.player2 || '').trim(),
+    }))
+    const result = await api.tournaments.saveTeamPlayers(props.tournamentId, teamsPayload)
+    if (result?.team_players) {
+      store.applyState({ team_players: result.team_players })
+    }
+    syncTeamPlayerDrafts()
+    teamPlayerSaveState.value = 'saved'
+    setTimeout(() => {
+      if (teamPlayerSaveState.value === 'saved') teamPlayerSaveState.value = 'idle'
+    }, 1200)
+  } catch (e) {
+    console.error('save-team-players failed', e)
+    teamPlayerSaveState.value = 'error'
+  }
+}
 
 function syncTableAssignments(shouldSave = true) {
   const desiredAssignments = buildStableTableAssignmentMap(groupMatches.value, activeTableCount.value)
@@ -910,9 +1013,6 @@ watch(
   }
 )
 
-// NEU: Reagiere auf WebSocket-Updates im Store
-import { useTournamentStore } from '../../stores/tournament.js'
-const store = useTournamentStore()
 watch(() => store.groupPhase, (newGp) => {
   // Verhindere das Schließen von Overlays durch WebSocket-Updates
   if (pendingShooter.value || pendingConclusion.value) return
@@ -1259,9 +1359,13 @@ function setCups(groupName, matchIndex, teamField, rawValue) {
 function resolveGroupTeamPlayers(teamName) {
   if (!teamName) return { p1: null, p2: null }
   const normalized = teamName.trim().toLowerCase()
-  const allPlayerKeys = Object.keys(props.teamPlayers || {})
+  const mergedTeamPlayers = {
+    ...(store.teamPlayers || {}),
+    ...(props.teamPlayers || {}),
+  }
+  const allPlayerKeys = Object.keys(mergedTeamPlayers)
   const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === normalized)
-  const players = props.teamPlayers[exactKey || teamName] || {}
+  const players = mergedTeamPlayers[exactKey || teamName] || {}
   return {
     p1: players.player1 || null,
     p2: players.player2 || null,
@@ -2475,7 +2579,13 @@ function formatTeamName(name, maxChars = 5) {
 }
 
 function formatPlayers(teamName) {
-  const p = props.teamPlayers[teamName]
+  const normalized = String(teamName || '').trim().toLowerCase()
+  const mergedTeamPlayers = {
+    ...(store.teamPlayers || {}),
+    ...(props.teamPlayers || {}),
+  }
+  const exactKey = Object.keys(mergedTeamPlayers).find(k => k.trim().toLowerCase() === normalized)
+  const p = mergedTeamPlayers[exactKey || teamName]
   if (!p) return ''
   if (p.player1 && p.player2) return `${p.player1} & ${p.player2}`
   return p.player1 || p.player2 || ''

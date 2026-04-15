@@ -20,6 +20,7 @@ from .services import (
     get_full_state,
     sort_ko_rounds,
     derive_active_ko_main_round_index,
+    derive_active_ko_stage_kind,
     get_ko_control_payload,
     is_ko_round_complete,
     set_ko_control_payload,
@@ -175,6 +176,46 @@ class TournamentViewSet(ViewSet):
                 }
                 for team in teams_qs
             ]
+        })
+
+    @action(detail=True, methods=['post'], url_path='save-team-players')
+    def save_team_players(self, request, pk=None):
+        t = self._get_or_404(pk)
+        teams_data = request.data.get('teams') or []
+        if not isinstance(teams_data, list):
+            return Response({'error': 'teams must be a list'}, status=400)
+
+        for item in teams_data:
+            if not isinstance(item, dict):
+                continue
+            name = (item.get('name') or '').strip()
+            if not name:
+                continue
+
+            team = Team.objects.filter(tournament=t, name=name).first()
+            if not team:
+                continue
+
+            p1_name = (item.get('player1') or '').strip()
+            p2_name = (item.get('player2') or '').strip()
+            p1 = Player.objects.get_or_create(name=p1_name)[0] if p1_name else None
+            p2 = Player.objects.get_or_create(name=p2_name)[0] if p2_name else None
+
+            changed = False
+            if team.player1 != p1:
+                team.player1 = p1
+                changed = True
+            if team.player2 != p2:
+                team.player2 = p2
+                changed = True
+            if changed:
+                team.save(update_fields=['player1', 'player2'])
+
+        full_state = get_full_state(t)
+        broadcast(t.id, 'team_players_updated', full_state)
+        return Response({
+            'ok': True,
+            'team_players': full_state.get('team_players') or {},
         })
 
     # ── Group phase ──────────────────────────────────────────────────────────
@@ -349,6 +390,10 @@ class TournamentViewSet(ViewSet):
             'active_main_round_index',
             request.data.get('activeMainRoundIndex'),
         )
+        incoming_active_stage_kind = request.data.get(
+            'active_stage_kind',
+            request.data.get('activeStageKind'),
+        )
         Match.objects.filter(tournament=t, phase=Match.PHASE_KO).delete()
         Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
 
@@ -397,7 +442,20 @@ class TournamentViewSet(ViewSet):
             if incoming_active_round_index is not None
             else existing_control.get('active_main_round_index', existing_control.get('activeMainRoundIndex')),
         )
-        set_ko_control_payload(t, {'active_main_round_index': active_main_round_index})
+        active_stage_kind = derive_active_ko_stage_kind(
+            sorted_rounds,
+            active_main_round_index,
+            incoming_active_stage_kind
+            if incoming_active_stage_kind is not None
+            else existing_control.get('active_stage_kind', existing_control.get('activeStageKind')),
+        )
+        set_ko_control_payload(
+            t,
+            {
+                'active_main_round_index': active_main_round_index,
+                'active_stage_kind': active_stage_kind,
+            },
+        )
 
         t.status = Tournament.STATUS_KO
         t.save()
@@ -412,26 +470,6 @@ class TournamentViewSet(ViewSet):
     @action(detail=True, methods=['post'], url_path='start-ko-next-round')
     def start_ko_next_round(self, request, pk=None):
         t = self._get_or_404(pk)
-        ko_state = get_full_state(t).get('ko_phase') or {}
-        rounds = sort_ko_rounds(ko_state.get('rounds') or [])
-        main_rounds = [r for r in rounds if (r.get('bracket_type') or 'main') != 'placement']
-        if not main_rounds:
-            return Response({'error': 'no ko rounds available'}, status=400)
-
-        active_main_round_index = derive_active_ko_main_round_index(
-            rounds,
-            ko_state.get('active_main_round_index', ko_state.get('activeMainRoundIndex')),
-        )
-        if active_main_round_index >= len(main_rounds):
-            return Response({'error': 'active round out of range'}, status=400)
-
-        current_round = main_rounds[active_main_round_index]
-        if not is_ko_round_complete(current_round):
-            return Response({'error': 'current round is not complete'}, status=400)
-
-        if active_main_round_index >= len(main_rounds) - 1:
-            return Response({'error': 'no next round available'}, status=400)
-
         next_main_round = request.data.get('next_main_round') or request.data.get('nextMainRound') or {}
         placement_round = request.data.get('placement_round') or request.data.get('placementRound') or {}
         rounds_to_materialize = []
@@ -495,8 +533,79 @@ class TournamentViewSet(ViewSet):
                     match_obj.status = 'pending'
                     match_obj.save(update_fields=['team1', 'team2', 'table', 'status'])
 
-        next_index = active_main_round_index + 1
-        set_ko_control_payload(t, {'active_main_round_index': next_index})
+        ko_state = get_full_state(t).get('ko_phase') or {}
+        rounds = sort_ko_rounds(ko_state.get('rounds') or [])
+        main_rounds = [r for r in rounds if (r.get('bracket_type') or 'main') != 'placement']
+        placement_round_state = next(
+            (r for r in rounds if (r.get('bracket_type') or 'main') == 'placement'),
+            None,
+        )
+        if not main_rounds:
+            return Response({'error': 'no ko rounds available'}, status=400)
+
+        request_active_round_index = request.data.get(
+            'active_main_round_index',
+            request.data.get('activeMainRoundIndex'),
+        )
+        request_active_stage_kind = request.data.get(
+            'active_stage_kind',
+            request.data.get('activeStageKind'),
+        )
+        active_main_round_index = derive_active_ko_main_round_index(
+            rounds,
+            request_active_round_index
+            if request_active_round_index is not None
+            else ko_state.get('active_main_round_index', ko_state.get('activeMainRoundIndex')),
+        )
+        active_stage_kind = derive_active_ko_stage_kind(
+            rounds,
+            active_main_round_index,
+            request_active_stage_kind
+            if request_active_stage_kind is not None
+            else ko_state.get('active_stage_kind', ko_state.get('activeStageKind')),
+        )
+        if active_main_round_index >= len(main_rounds):
+            return Response({'error': 'active round out of range'}, status=400)
+
+        if active_stage_kind == 'placement':
+            if not placement_round_state:
+                return Response({'error': 'placement round not available'}, status=400)
+            if not is_ko_round_complete(placement_round_state):
+                return Response({'error': 'current round is not complete'}, status=400)
+            final_round = main_rounds[active_main_round_index]
+            final_available = any(
+                m.get('team1') and m.get('team2') and not m.get('winner')
+                for m in (final_round.get('matches') or [])
+            )
+            if not final_available:
+                return Response({'error': 'final not available'}, status=400)
+            next_index = active_main_round_index
+            next_stage_kind = 'main'
+        else:
+            current_round = main_rounds[active_main_round_index]
+            if not is_ko_round_complete(current_round):
+                return Response({'error': 'current round is not complete'}, status=400)
+
+            if active_main_round_index >= len(main_rounds) - 1:
+                return Response({'error': 'no next round available'}, status=400)
+
+            next_index = active_main_round_index + 1
+            next_stage_kind = 'main'
+            if next_index == len(main_rounds) - 1 and placement_round_state:
+                placement_available = any(
+                    m.get('team1') and m.get('team2') and not m.get('winner')
+                    for m in (placement_round_state.get('matches') or [])
+                )
+                if placement_available:
+                    next_stage_kind = 'placement'
+
+        set_ko_control_payload(
+            t,
+            {
+                'active_main_round_index': next_index,
+                'active_stage_kind': next_stage_kind,
+            },
+        )
         full_state = get_full_state(t)
         broadcast(t.id, 'ko_updated', full_state)
         return Response(full_state.get('ko_phase') or {})

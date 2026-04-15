@@ -153,6 +153,21 @@ def is_ko_round_complete(round_data: Dict[str, Any]) -> bool:
     )
 
 
+def _ko_round_has_playable_matches(round_data: Dict[str, Any]) -> bool:
+    return any(
+        m.get('team1') and m.get('team2') and not m.get('winner')
+        for m in (round_data.get('matches') or [])
+    )
+
+
+def _ko_round_has_started(round_data: Dict[str, Any]) -> bool:
+    return any(
+        (m.get('team1') and m.get('team2') and bool(m.get('winner')))
+        or (m.get('team1') and m.get('team2') and _ko_match_in_progress(m))
+        for m in (round_data.get('matches') or [])
+    )
+
+
 def derive_active_ko_main_round_index(
     rounds: List[Dict[str, Any]],
     explicit_index: Any = None,
@@ -182,6 +197,45 @@ def derive_active_ko_main_round_index(
             return idx
 
     return max(0, len(main_rounds) - 1)
+
+
+def derive_active_ko_stage_kind(
+    rounds: List[Dict[str, Any]],
+    active_main_round_index: Any = None,
+    explicit_stage_kind: Any = None,
+) -> str:
+    sorted_rounds = sort_ko_rounds(rounds)
+    main_rounds = [r for r in sorted_rounds if (r.get('bracket_type') or 'main') != 'placement']
+    placement_round = next(
+        (r for r in sorted_rounds if (r.get('bracket_type') or 'main') == 'placement'),
+        None,
+    )
+    if not main_rounds:
+        return 'main'
+
+    idx = derive_active_ko_main_round_index(sorted_rounds, active_main_round_index)
+    if not placement_round or idx != len(main_rounds) - 1:
+        return 'main'
+
+    explicit = str(explicit_stage_kind or '').strip().lower()
+    if explicit in {'main', 'placement'}:
+        return explicit
+
+    final_round = main_rounds[idx]
+    placement_started = _ko_round_has_started(placement_round)
+    final_started = _ko_round_has_started(final_round)
+    placement_pending = _ko_round_has_playable_matches(placement_round)
+    final_pending = _ko_round_has_playable_matches(final_round)
+
+    if final_started:
+        return 'main'
+    if placement_started:
+        return 'placement'
+    if placement_pending and final_pending:
+        return 'placement'
+    if placement_pending and not final_pending:
+        return 'placement'
+    return 'main'
 
 
 def get_ko_control_payload(tournament: Tournament) -> Dict[str, Any]:
@@ -411,6 +465,11 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
         ko_rounds,
         ko_control.get('active_main_round_index', ko_control.get('activeMainRoundIndex')),
     )
+    active_ko_stage_kind = derive_active_ko_stage_kind(
+        ko_rounds,
+        active_ko_main_round_index,
+        ko_control.get('active_stage_kind', ko_control.get('activeStageKind')),
+    )
 
     # Top Players (based on hits in THIS tournament)
     from django.db.models import Count
@@ -471,5 +530,7 @@ def get_full_state(tournament: Tournament) -> Dict[str, Any]:
             'rounds': ko_rounds,
             'active_main_round_index': active_ko_main_round_index,
             'activeMainRoundIndex': active_ko_main_round_index,
+            'active_stage_kind': active_ko_stage_kind,
+            'activeStageKind': active_ko_stage_kind,
         },
     }

@@ -26,7 +26,7 @@
         </div>
         <div class="lvko-side">
           <div class="card bg-black border-secondary lvko-qr-card text-center">
-            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-2">
+            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-1">
               <div class="text-secondary small text-uppercase" style="letter-spacing:.1em">Mobile Ansicht</div>
               <canvas ref="qrCanvas" class="lvko-qr-canvas"></canvas>
               <small class="text-secondary lvko-qr-url">{{ mobileUrl }}</small>
@@ -76,7 +76,7 @@
         </div>
         <div class="lvko-side">
           <div class="card bg-black border-secondary lvko-qr-card text-center">
-            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-2">
+            <div class="card-body p-3 d-flex flex-column align-items-center justify-content-center gap-1">
               <div class="text-secondary small text-uppercase" style="letter-spacing:.1em">Mobile Ansicht</div>
               <canvas ref="qrCanvas" class="lvko-qr-canvas"></canvas>
               <small class="text-secondary lvko-qr-url">{{ mobileUrl }}</small>
@@ -118,9 +118,12 @@ const cupsPerGame = computed(() => Number(tournament.value?.cupsPerGame ?? tourn
 const activeKoMainRoundIndex = computed(() =>
   store.koPhase?.active_main_round_index ?? store.koPhase?.activeMainRoundIndex ?? null
 )
+const activeKoStageKind = computed(() =>
+  store.koPhase?.active_stage_kind ?? store.koPhase?.activeStageKind ?? null
+)
 
 const activeKOMatches = computed(() =>
-  getKOActiveMatches(koRounds.value, tableCount.value, activeKoMainRoundIndex.value)
+  getKOActiveMatches(koRounds.value, tableCount.value, activeKoMainRoundIndex.value, activeKoStageKind.value)
 )
 const activeMatchIds  = computed(() => new Set(activeKOMatches.value.map(m => m.id).filter(id => id != null)))
 function normalizeKoLiveState(rawState, cupsTarget, hitsTaken = 0, isOvertime = false) {
@@ -295,21 +298,22 @@ onUnmounted(() => {
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
-  gap: clamp(10px, 1.5vw, 20px);
+  gap: clamp(15px, 2vw, 30px); /* Increased gap */
   overflow-x: auto;
-  padding-bottom: 4px;
-  align-items: flex-start;
-  justify-content: center;
+  padding: 10px 0;
+  align-items: center; /* Centered vertically */
+  justify-content: center; /* Centered horizontally */
+  min-height: clamp(300px, 42vh, 520px); /* Ensure enough space for large tables */
 }
 
 /* Compact the 3D tables in the live strip so the bracket gets more space */
 .lvko-tables-row :deep(.beer-table--beam) {
-  --tw:    clamp(120px, 10vw, 175px);
-  --th:    clamp(175px, 20vh, 275px);
-  --cs:    clamp(13px,  1.2vw, 20px);
-  --cg:    clamp(4px,   0.38vw, 6px);
-  --nf:    clamp(0.72rem, 0.95vw, 1.05rem);
-  --labelf: clamp(0.6rem, 0.72vw, 0.8rem);
+  /* Using min() to check both width and available height for scaling */
+  --tw:    clamp(130px, min(11vw, 15vh), 195px);
+  --ratio: 2.6; /* Proportional length for KO */
+  --tilt:  28deg;
+  --nf:    clamp(0.85rem, 1.0vw, 1.15rem);
+  --labelf: clamp(0.65rem, 0.78vw, 0.85rem);
 }
 
 .lvko-tables-empty {
@@ -389,18 +393,25 @@ onUnmounted(() => {
 
 .lvko-qr-canvas {
   width: 100%;
-  max-width: min(16vh, 9vw, 150px);
-  aspect-ratio: 1;
+  height: auto;
+  max-width: min(15vh, 12vw, 140px);
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  border-radius: 8px;
 }
 
 .lvko-qr-url {
-  font-size: 0.52rem;
+  font-size: 0.35rem;
   word-break: break-all;
-  color: rgba(255,255,255,0.32) !important;
-  line-height: 1.4;
+  overflow-wrap: anywhere;
+  color: rgba(255,255,255,0.18) !important;
+  line-height: 1.1;
+  display: block;
+  max-width: 100%;
 }
 
 @media (max-height: 800px) {
-  .lvko-qr-canvas { max-width: min(16vh, 12vw, 150px); }
+  .lvko-qr-canvas { max-width: min(12vh, 10vw, 110px); }
+  .lvko-side { gap: 6px; }
 }
 </style>

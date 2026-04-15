@@ -312,6 +312,7 @@ const emit = defineEmits(['back', 'saved'])
 const loading = ref(false)
 const roundsLocal = reactive([])
 const activeMainRoundIndex = ref(0)
+const activeStageKind = ref('main')
 const initialTeams = computed(() => (props.teams || []).filter(Boolean))
 const tableCount = ref(2)
 const viewMode = ref('tables')
@@ -343,22 +344,11 @@ watch(tableCount, async (newCount) => {
   } catch { /* silent */ }
 })
 
-const activeStageMeta = computed(() => getKoStageMeta(roundsLocal, activeMainRoundIndex.value))
-const currentMainRoundInfo = computed(() => {
-  const infos = getKoMainRoundInfos(roundsLocal)
-  return infos[activeStageMeta.value.activeMainRoundIndex] || null
-})
-const activeStageLabel = computed(() => {
-  const baseLabel = activeStageMeta.value.currentRoundLabel || 'KO-Phase'
-  const infos = getKoMainRoundInfos(roundsLocal)
-  const hasPlacement = roundsLocal.some(round => round?.bracket_type === 'placement')
-  if (hasPlacement && activeStageMeta.value.activeMainRoundIndex === infos.length - 1) {
-    return `${baseLabel} & Spiel um Platz 3`
-  }
-  return baseLabel
-})
+const activeStageMeta = computed(() => getKoStageMeta(roundsLocal, activeMainRoundIndex.value, activeStageKind.value))
+const activeStageLabel = computed(() => activeStageMeta.value.currentRoundLabel || 'KO-Phase')
 const currentRoundProgressText = computed(() => {
-  const matches = currentMainRoundInfo.value?.round?.matches || []
+  const stageRounds = filterKoRoundsForActiveStage(roundsLocal, activeMainRoundIndex.value, activeStageKind.value)
+  const matches = stageRounds[0]?.matches || []
   const playableMatches = matches.filter(match => match?.team1 && match?.team2)
   const finishedMatches = playableMatches.filter(match => !!match?.winner)
   if (!playableMatches.length) return 'Warte auf Teams'
@@ -369,7 +359,7 @@ const nextStageButtonLabel = computed(() =>
   activeStageMeta.value.nextRoundLabel ? `${activeStageMeta.value.nextRoundLabel} starten` : 'Nächste Runde starten'
 )
 const playableRoundIndices = computed(() => {
-  const rounds = filterKoRoundsForActiveStage(roundsLocal, activeMainRoundIndex.value)
+  const rounds = filterKoRoundsForActiveStage(roundsLocal, activeMainRoundIndex.value, activeStageKind.value)
   return new Set(
     rounds
       .map(round => roundsLocal.indexOf(round))
@@ -1077,6 +1067,7 @@ function seedBracket() {
   propagateAll(rounds)
   roundsLocal.splice(0, roundsLocal.length, ...rounds)
   activeMainRoundIndex.value = 0
+  activeStageKind.value = 'main'
 }
 
 /* Actions für Cups */
@@ -1154,10 +1145,12 @@ async function loadFromServer() {
 
     let serverRounds = []
     let serverActiveMainRoundIndex = null
+    let serverActiveStageKind = null
     if (resBracket && resBracket.ok) {
       const bracketData = await resBracket.json().catch(() => null)
       serverRounds = bracketData?.rounds || []
       serverActiveMainRoundIndex = bracketData?.active_main_round_index ?? bracketData?.activeMainRoundIndex ?? null
+      serverActiveStageKind = bracketData?.active_stage_kind ?? bracketData?.activeStageKind ?? null
     }
 
     if (serverRounds.length > 0) {
@@ -1226,6 +1219,7 @@ async function loadFromServer() {
       activeMainRoundIndex.value = Number.isInteger(parsedActiveRoundIndex)
         ? parsedActiveRoundIndex
         : getKoStageMeta(roundsLocal, null).activeMainRoundIndex
+      activeStageKind.value = serverActiveStageKind ?? getKoStageMeta(roundsLocal, activeMainRoundIndex.value).activeStageKind
     } else if (initialTeams.value.length > 0) {
       seedBracket()
     }
@@ -1244,6 +1238,7 @@ async function saveToServer() {
     const payload = {
       rounds: roundsLocal,
       active_main_round_index: activeMainRoundIndex.value,
+      active_stage_kind: activeStageKind.value,
     }
     await fetch(`${API}/tournaments/${props.tournamentId}/save-ko-bracket`, {
       method: 'POST',
@@ -1271,6 +1266,7 @@ async function startNextKoRound() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         active_main_round_index: activeMainRoundIndex.value,
+        active_stage_kind: activeStageKind.value,
         next_main_round: serializeKoRoundForRelease(nextMainInfo?.round),
         placement_round: nextMainInfo && (activeMainRoundIndex.value + 1 === mainInfos.length - 1)
           ? serializeKoRoundForRelease(placementRound)
@@ -1281,6 +1277,7 @@ async function startNextKoRound() {
     if (!res.ok) throw new Error(data?.error || 'start next ko round failed')
     const nextIndex = Number(data?.active_main_round_index ?? data?.activeMainRoundIndex)
     if (Number.isInteger(nextIndex)) activeMainRoundIndex.value = nextIndex
+    activeStageKind.value = data?.active_stage_kind ?? data?.activeStageKind ?? activeStageKind.value
     store.applyState({ ko_phase: data || {} })
   } catch (e) {
     console.error(e)

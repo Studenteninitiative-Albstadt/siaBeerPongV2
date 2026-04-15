@@ -165,10 +165,27 @@ export function getKoMainRoundInfos(rounds = []) {
     .filter(entry => (entry.round?.bracket_type || 'main') !== 'placement')
 }
 
+export function getKoPlacementRoundInfo(rounds = []) {
+  return (rounds || [])
+    .map((round, idx) => ({ round, idx }))
+    .find(entry => (entry.round?.bracket_type || 'main') === 'placement') || null
+}
+
 export function isKoRoundComplete(round = {}) {
   const matches = round?.matches || []
   if (!matches.length) return false
   return matches.every(match => !match?.team1 || !match?.team2 || !!match?.winner)
+}
+
+function hasKoPlayableMatches(round = {}) {
+  return (round?.matches || []).some(match => match?.team1 && match?.team2 && !match?.winner)
+}
+
+function hasKoRoundStarted(round = {}) {
+  return (round?.matches || []).some(match =>
+    (match?.team1 && match?.team2 && !!match?.winner) ||
+    (match?.team1 && match?.team2 && isKoMatchInProgress(match))
+  )
 }
 
 export function deriveKoActiveMainRoundIndex(rounds = [], explicitIndex = null) {
@@ -195,25 +212,54 @@ export function deriveKoActiveMainRoundIndex(rounds = [], explicitIndex = null) 
   return Math.max(0, mainInfos.length - 1)
 }
 
-export function filterKoRoundsForActiveStage(rounds = [], explicitIndex = null) {
+export function deriveKoActiveStageKind(rounds = [], explicitIndex = null, explicitStageKind = null) {
+  const mainInfos = getKoMainRoundInfos(rounds)
+  if (!mainInfos.length) return 'main'
+
+  const activeMainRoundIndex = deriveKoActiveMainRoundIndex(rounds, explicitIndex)
+  const placementInfo = getKoPlacementRoundInfo(rounds)
+  if (!placementInfo || activeMainRoundIndex !== mainInfos.length - 1) return 'main'
+
+  if (explicitStageKind === 'main' || explicitStageKind === 'placement') {
+    return explicitStageKind
+  }
+
+  const finalInfo = mainInfos[activeMainRoundIndex]
+  const placementStarted = hasKoRoundStarted(placementInfo?.round)
+  const finalStarted = hasKoRoundStarted(finalInfo?.round)
+  const placementPending = hasKoPlayableMatches(placementInfo?.round)
+  const finalPending = hasKoPlayableMatches(finalInfo?.round)
+
+  if (finalStarted) return 'main'
+  if (placementStarted) return 'placement'
+  if (placementPending && finalPending) return 'placement'
+  if (placementPending && !finalPending) return 'placement'
+  return 'main'
+}
+
+export function filterKoRoundsForActiveStage(rounds = [], explicitIndex = null, explicitStageKind = null) {
   const mainInfos = getKoMainRoundInfos(rounds)
   if (!mainInfos.length) return []
 
   const activeMainRoundIndex = deriveKoActiveMainRoundIndex(rounds, explicitIndex)
+  const activeStageKind = deriveKoActiveStageKind(rounds, activeMainRoundIndex, explicitStageKind)
   const activeMainInfo = mainInfos[activeMainRoundIndex]
-  const isFinalStage = activeMainRoundIndex === mainInfos.length - 1
+  const placementInfo = getKoPlacementRoundInfo(rounds)
 
   return (rounds || []).filter((round, idx) => {
-    if ((round?.bracket_type || 'main') === 'placement') return isFinalStage
-    return idx === activeMainInfo?.idx
+    if ((round?.bracket_type || 'main') === 'placement') {
+      return activeStageKind === 'placement' && idx === placementInfo?.idx
+    }
+    return activeStageKind === 'main' && idx === activeMainInfo?.idx
   })
 }
 
-export function getKoStageMeta(rounds = [], explicitIndex = null) {
+export function getKoStageMeta(rounds = [], explicitIndex = null, explicitStageKind = null) {
   const mainInfos = getKoMainRoundInfos(rounds)
   if (!mainInfos.length) {
     return {
       activeMainRoundIndex: 0,
+      activeStageKind: 'main',
       hasNextStage: false,
       currentRoundLabel: 'KO-Phase',
       nextRoundLabel: null,
@@ -222,20 +268,36 @@ export function getKoStageMeta(rounds = [], explicitIndex = null) {
   }
 
   const activeMainRoundIndex = deriveKoActiveMainRoundIndex(rounds, explicitIndex)
-  const currentInfo = mainInfos[activeMainRoundIndex]
+  const activeStageKind = deriveKoActiveStageKind(rounds, activeMainRoundIndex, explicitStageKind)
+  const currentInfo = activeStageKind === 'placement'
+    ? getKoPlacementRoundInfo(rounds)
+    : mainInfos[activeMainRoundIndex]
   const nextInfo = mainInfos[activeMainRoundIndex + 1] || null
+  const finalInfo = mainInfos[activeMainRoundIndex]
+  const placementInfo = getKoPlacementRoundInfo(rounds)
   const currentRoundComplete = isKoRoundComplete(currentInfo?.round)
-  const hasNextStage = !!nextInfo
+
+  let hasNextStage = false
+  let nextRoundLabel = null
+
+  if (activeStageKind === 'placement') {
+    const finalAvailable = hasKoPlayableMatches(finalInfo?.round) || hasKoRoundStarted(finalInfo?.round)
+    hasNextStage = finalAvailable
+    nextRoundLabel = finalAvailable ? (finalInfo?.round?.round_name || 'Finale') : null
+  } else if (nextInfo) {
+    const placementAvailable = nextInfo === mainInfos[mainInfos.length - 1] && placementInfo && hasKoPlayableMatches(placementInfo.round)
+    hasNextStage = true
+    nextRoundLabel = placementAvailable
+      ? (placementInfo?.round?.round_name || 'Spiel um Platz 3')
+      : (nextInfo.round?.round_name || 'Nächste Runde')
+  }
 
   return {
     activeMainRoundIndex,
+    activeStageKind,
     hasNextStage,
     currentRoundLabel: currentInfo?.round?.round_name || 'KO-Phase',
-    nextRoundLabel: nextInfo
-      ? (activeMainRoundIndex + 1 === mainInfos.length - 1
-        ? `${nextInfo.round?.round_name || 'Finale'} & Spiel um Platz 3`
-        : (nextInfo.round?.round_name || 'Nächste Runde'))
-      : null,
+    nextRoundLabel,
     currentRoundComplete,
   }
 }

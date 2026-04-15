@@ -213,13 +213,18 @@ function buildPyramid(arr, is10) {
 <style scoped>
 /* ── Variables ───────────────────────────────────────────────────────────── */
 .beer-table {
-  --tw:    250px;
-  --th:    480px;
+  /* Master Variable */
+  --tw:    220px;
+
+  /* Proportional derivations */
+  --ratio: 2.2; /* Table is 2.2x as long as wide */
+  --th:    calc(var(--tw) * var(--ratio));
+  --cs:    calc(var(--tw) * 0.135); /* Cup size is ~13.5% of width */
+  --cg:    calc(var(--tw) * 0.04);  /* Gap is 4% of width */
+  --tp:    calc(var(--th) * 0.04);  /* Padding top/bottom is 4% of height */
+
   --tb:    4px;
-  --tp:    22px;
-  --cs:    32px;    /* cup size */
-  --cg:    9px;     /* cup gap  */
-  --tilt:  32deg;   /* Increased from 20deg for better perspective */
+  --tilt:  25deg;
   --nf:    1.45rem;
   --gaptop:  0.9rem;
   --gapbot:  1rem;
@@ -231,13 +236,8 @@ function buildPyramid(arr, is10) {
 }
 
 .beer-table--compact {
-  --tw:    155px;
-  --th:    255px;
-  --tb:    3px;
-  --tp:    11px;
-  --cs:    20px;
-  --cg:    6px;
-  --tilt:  25deg;
+  --tw:    140px;
+  --ratio: 1.8;
   --nf:    1.1rem;
   --gaptop:  0.65rem;
   --gapbot:  0.75rem;
@@ -245,10 +245,9 @@ function buildPyramid(arr, is10) {
 }
 
 .beer-table--beam {
-  --tw:    clamp(155px, 14vw, 235px);
-  --th:    clamp(380px, 48vh, 600px); /* Significantly increased height */
-  --cs:    clamp(20px, 1.75vw, 30px);
-  --cg:    clamp(6px, 0.55vw, 10px);
+  /* On beam, we want it to scale with viewport width, but keep proportions */
+  --tw:    clamp(140px, 12vw, 240px);
+  --ratio: 2.4; /* Longer for beam */
   --nf:    clamp(1rem, 1.2vw, 1.35rem);
   --labelf: clamp(0.75rem, 0.9vw, 0.95rem);
 }
@@ -359,7 +358,7 @@ function buildPyramid(arr, is10) {
 
 /* ── Cup rows ────────────────────────────────────────────────────────────── */
 .beer-table__cups {
-  height: 38%; /* Reduced from 44% to make the table look longer */
+  height: 44%;
   display: flex;
   flex-direction: column;
   align-items: center;

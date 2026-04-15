@@ -66,6 +66,7 @@ export const api = {
     delete:         (id)      => del(`/tournaments/${id}`),
     computePlan:    (id, d)   => post(`/tournaments/${id}/compute-plan`, d),
     saveTeams:      (id, ts)  => post(`/tournaments/${id}/save-teams`, { teams: ts }),
+    saveTeamPlayers:(id, ts)  => post(`/tournaments/${id}/save-team-players`, { teams: ts }),
     loadTeams:      (id)      => get(`/tournaments/${id}/load-teams`),
     generateGroups: (id, ts)  => post(`/tournaments/${id}/generate-groups`, { teams: ts }),
     saveGroupPhase: (id, d)   => post(`/tournaments/${id}/save-group-phase`, d),

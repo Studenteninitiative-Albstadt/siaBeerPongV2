@@ -308,9 +308,12 @@ const activeTableCount = computed(() => {
 const activeKoMainRoundIndex = computed(() =>
   store.koPhase?.active_main_round_index ?? store.koPhase?.activeMainRoundIndex ?? null
 )
+const activeKoStageKind = computed(() =>
+  store.koPhase?.active_stage_kind ?? store.koPhase?.activeStageKind ?? null
+)
 
 const activeKOMatches = computed(() =>
-  getKOActiveMatches(koRounds.value, activeTableCount.value, activeKoMainRoundIndex.value)
+  getKOActiveMatches(koRounds.value, activeTableCount.value, activeKoMainRoundIndex.value, activeKoStageKind.value)
 )
 
 function normalizeKoLiveState(rawState, cupsTarget, hitsTaken = 0, isOvertime = false) {
@@ -355,7 +358,7 @@ const activeTeamNames = computed(() => {
 
 const upcomingMatches = computed(() =>
   isKnockoutPhase.value
-    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, 10, activeKoMainRoundIndex.value).map(m => ({
+    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, 10, activeKoMainRoundIndex.value, activeKoStageKind.value).map(m => ({
         ...m,
         round: m.round_name || 'KO-Phase',
       }))
@@ -401,11 +404,21 @@ onMounted(async () => {
         mobileRefreshTimer = window.setInterval(async () => {
           try {
             const next = await api.tournaments.mobileState(tournamentId, token.value)
-            if (!next?.error) applyMobileState(next)
+            if (!next?.error) {
+              applyMobileState(next)
+              return
+            }
+            valid.value = false
+            if (mobileRefreshTimer) {
+              window.clearInterval(mobileRefreshTimer)
+              mobileRefreshTimer = null
+            }
           } catch {
             // ignore polling errors; websocket remains primary live path
           }
         }, 5000)
+      } else {
+        valid.value = false
       }
     } else {
       valid.value = false
