@@ -334,12 +334,7 @@ const liveviewEvents = [
     place: 'Plan B, Poststraße 6, 72458 Albstadt',
   },
   {
-    when: 'Do, 30/04/26 20:00',
-    title: 'WG-Party',
-    place: 'Plan B, Poststraße 6, 72458 Albstadt',
-  },
-  {
-    when: 'Fr, 01/05/26 11:00',
+    when: 'Do, 30/04/26 22:00',
     title: 'RAVE IN DEN MAI',
     place: 'Plan B, Poststraße 6, 72458 Albstadt',
   },
