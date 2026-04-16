@@ -1,0 +1,11 @@
+frontend/node_modules
+frontend/dist
+frontend/.env.local
+django_backend/__pycache__
+django_backend/**/*.pyc
+django_backend/db.sqlite3
+django_backend/db.sqlite3-journal
+.git
+.gitignore
+README.md
+DEPLOYMENT.md

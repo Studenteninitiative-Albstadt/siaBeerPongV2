@@ -27,5 +27,11 @@ Der Lifecycle wird durch spezialisierte Frontend-Komponenten visualisiert:
 - **Visual Feedback**: Ball-Animationen und Becher-Zustände werden in Echtzeit visualisiert.
 - **Compact Data**: Mobile Ansichten sind platzoptimiert (QR-Code Integration).
 
+## Betrieb
+
+- Lokale Entwicklung: [`docker-compose.yml`](./docker-compose.yml)
+- Produktiver Stack fuer `sia-bp.butzke.it`: [`docker-compose.prod.yml`](./docker-compose.prod.yml)
+- Server-Setup, Host-Nginx und To-dos: [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+
 ---
 *Status: 15. April 2026 - Layout & Scaling Refined*

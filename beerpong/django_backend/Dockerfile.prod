@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY django_backend/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+COPY django_backend/ /app/
+COPY scripts/ /opt/deploy-scripts/
+
+RUN chmod +x /app/entrypoint.prod.sh /opt/deploy-scripts/verify_required_env.sh
+
+ENTRYPOINT ["./entrypoint.prod.sh"]
