@@ -43,7 +43,7 @@
         <div class="row g-4">
           <div class="col-xl-4 col-lg-5">
             <div class="card bg-black border-secondary h-100 shadow-lg">
-              <div class="card-header border-secondary bg-black">
+              <div class="card-header border-secondary liveview-card-header">
                 <strong>TL;DR</strong>
               </div>
               <div class="card-body">
@@ -59,7 +59,7 @@
 
           <div class="col-xl-8 col-lg-7">
             <div class="card bg-black border-secondary h-100 shadow-lg">
-              <div class="card-header border-secondary bg-black">
+              <div class="card-header border-secondary liveview-card-header">
                 <strong>Upcoming Events</strong>
               </div>
               <div class="card-body">
@@ -80,31 +80,30 @@
           </div>
         </div>
 
-        <div class="liveview-launcher mt-4 mt-lg-auto">
+        <div v-if="showTournamentPicker" class="liveview-launcher-panel mt-4">
           <div class="card bg-black border-secondary shadow-lg overflow-hidden">
-            <div class="card-body d-flex justify-content-between align-items-center gap-3 flex-wrap">
-              <div>
-                <div class="fw-semibold text-white">Turnierauswahl</div>
-                <div class="small text-secondary">{{ store.tournaments.length }} Turniere verfügbar</div>
-              </div>
-              <button class="btn btn-primary" @click="showTournamentPicker = !showTournamentPicker">
-                {{ showTournamentPicker ? 'Auswahl schließen' : 'Turniere anzeigen' }}
+            <div class="card-header border-secondary liveview-card-header d-flex justify-content-between align-items-center">
+              <strong>Turnierauswahl</strong>
+              <span class="small text-light-emphasis">{{ store.tournaments.length }} verfügbar</span>
+            </div>
+            <div v-if="store.tournaments.length === 0" class="p-3 text-secondary small">
+              Keine Turniere vorhanden.
+            </div>
+            <div v-else class="list-group list-group-flush liveview-tournament-list">
+              <button v-for="t in store.tournaments" :key="t.id"
+                      class="list-group-item list-group-item-action bg-dark text-light border-secondary"
+                      @click="selectTournament(t)">
+                <div class="fw-bold">{{ t.name }}</div>
+                <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
               </button>
             </div>
-            <div v-if="showTournamentPicker" class="border-top border-secondary">
-              <div v-if="store.tournaments.length === 0" class="p-3 text-secondary small">
-                Keine Turniere vorhanden.
-              </div>
-              <div v-else class="list-group list-group-flush liveview-tournament-list">
-                <button v-for="t in store.tournaments" :key="t.id"
-                        class="list-group-item list-group-item-action bg-dark text-light border-secondary"
-                        @click="selectTournament(t)">
-                  <div class="fw-bold">{{ t.name }}</div>
-                  <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
-                </button>
-              </div>
-            </div>
           </div>
+        </div>
+
+        <div class="border-top border-secondary py-2 px-3 text-center liveview-landing-footer mt-4 mt-lg-auto">
+          <button class="btn btn-outline-secondary btn-sm" @click="showTournamentPicker = !showTournamentPicker">
+            {{ showTournamentPicker ? 'Auswahl schließen' : 'Turnier auswählen' }}
+          </button>
         </div>
       </div>
     </div>
@@ -776,6 +775,13 @@ watch(groupEntries, () => {
   max-width: 48rem;
 }
 
+.liveview-card-header {
+  background: linear-gradient(180deg, rgba(28, 36, 52, 0.98) 0%, rgba(13, 18, 28, 0.98) 100%) !important;
+  color: #f8f9fa;
+  border-bottom-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+
 .liveview-rule,
 .liveview-event {
   padding: 0.85rem 0.95rem;
@@ -802,6 +808,14 @@ watch(groupEntries, () => {
 
 .liveview-launcher {
   width: min(860px, 100%);
+}
+
+.liveview-launcher-panel {
+  width: min(860px, 100%);
+}
+
+.liveview-landing-footer {
+  flex: 0 0 auto;
 }
 
 .liveview-tournament-list .list-group-item {
