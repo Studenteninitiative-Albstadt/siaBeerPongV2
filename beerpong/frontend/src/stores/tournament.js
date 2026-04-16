@@ -44,7 +44,16 @@ export const useTournamentStore = defineStore('tournament', () => {
     // Single KO match update (from ko_match_updated broadcast)
     if (data.id !== undefined && !data.tournament && !data.ko_phase && !data.group_phase && data.cups_team1 !== undefined) {
       for (const round of (koPhase.value.rounds || [])) {
-        const idx = (round.matches || []).findIndex(m => m.id === data.id)
+        let idx = (round.matches || []).findIndex(m => m.id === data.id)
+        if (
+          idx === -1 &&
+          round?.round_name === data.ko_round &&
+          (round?.bracket_type || 'main') === (data.ko_bracket_type || 'main')
+        ) {
+          idx = (round.matches || []).findIndex(m =>
+            Number(m?.ko_match_index ?? -1) === Number(data.ko_match_index ?? -1)
+          )
+        }
         if (idx !== -1) {
           round.matches[idx] = { ...round.matches[idx], ...data }
           break

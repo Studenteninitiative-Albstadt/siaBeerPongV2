@@ -618,8 +618,8 @@ watch(groupEntries, () => {
 
 /* Make tables larger in beam mode inside LiveView (group phase) */
 .lv-tables-scroll :deep(.beer-table--beam) {
-  /* Scales with width (14vw) but capped by height (approx 18vh with 2.3 ratio) */
-  --tw:    clamp(140px, min(14vw, 18vh), 240px);
+  /* Strictly tied to available height to prevent overlap */
+  --tw:    clamp(120px, min(12vw, 15vh), 210px);
   --ratio: 2.3;
 }
 
@@ -674,6 +674,8 @@ watch(groupEntries, () => {
   min-height: 0;
   display: flex;
   gap: clamp(8px, 1vw, 14px);
+  position: relative;
+  z-index: 10;
 }
 
 .lv-standings-col {

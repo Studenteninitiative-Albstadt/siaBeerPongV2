@@ -48,7 +48,7 @@
             v-for="(m, i) in liveMatchCards"
             :key="m.id ?? i"
             :match="m"
-            :cups-per-game="cupsPerGame"
+            :cups-per-game="m.match_cups_per_game ?? cupsPerGame"
             :table-label="`Tisch ${m.table_no} • ${m.round_name}`"
             show-score beam
           />
@@ -100,7 +100,7 @@ import KnockoutPreviewTree from './KnockoutPreviewTree.vue'
 import KnockoutResultsTree from './KnockoutResultsTree.vue'
 import LiveTable3D from './LiveTable3D.vue'
 import { getKOActiveMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
-import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
+import { inferKoMatchCupsTarget, normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
 defineEmits(['deselect'])
 
@@ -115,6 +115,7 @@ const groupStandings = computed(() => store.groupStandings ?? {})
 const playin = computed(() => store.playin ?? {})
 const tableCount  = computed(() => Number(tournament.value?.tableCount ?? tournament.value?.table_count ?? 2) || 2)
 const cupsPerGame = computed(() => Number(tournament.value?.cupsPerGame ?? tournament.value?.cups_per_game ?? 6) || 6)
+const finaleWith10Cups = computed(() => !!(tournament.value?.finaleWith10Cups ?? tournament.value?.finale_with_10_cups))
 const activeKoMainRoundIndex = computed(() =>
   store.koPhase?.active_main_round_index ?? store.koPhase?.activeMainRoundIndex ?? null
 )
@@ -194,8 +195,14 @@ const liveMatchCards  = computed(() =>
   activeKOMatches.value.map(m => ({
     ...m,
     group_name: m.round_name || 'KO-Phase',
-    cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsPerGame.value, m.cups_team2, !!m.is_overtime),
-    cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsPerGame.value, m.cups_team1, !!m.is_overtime),
+    ...(() => {
+      const cupsTarget = inferKoMatchCupsTarget(m, koRounds.value, cupsPerGame.value, finaleWith10Cups.value)
+      return {
+        match_cups_per_game: cupsTarget,
+        cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsTarget, m.cups_team2, !!m.is_overtime),
+        cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsTarget, m.cups_team1, !!m.is_overtime),
+      }
+    })(),
   }))
 )
 
@@ -298,19 +305,18 @@ onUnmounted(() => {
   flex: 0 0 auto;
   display: flex;
   flex-direction: row;
-  gap: clamp(15px, 2vw, 30px); /* Increased gap */
-  overflow-x: auto;
-  padding: 10px 0;
-  align-items: center; /* Centered vertically */
-  justify-content: center; /* Centered horizontally */
-  min-height: clamp(300px, 42vh, 520px); /* Ensure enough space for large tables */
+  gap: clamp(15px, 2vw, 30px);
+  overflow: hidden;
+  padding: 8px 0;
+  align-items: center;
+  justify-content: center;
+  min-height: clamp(240px, 34vh, 480px);
 }
 
 /* Compact the 3D tables in the live strip so the bracket gets more space */
 .lvko-tables-row :deep(.beer-table--beam) {
-  /* Using min() to check both width and available height for scaling */
-  --tw:    clamp(130px, min(11vw, 15vh), 195px);
-  --ratio: 2.6; /* Proportional length for KO */
+  --tw:    clamp(110px, min(10vw, 12vh), 180px);
+  --ratio: 2.6;
   --tilt:  28deg;
   --nf:    clamp(0.85rem, 1.0vw, 1.15rem);
   --labelf: clamp(0.65rem, 0.78vw, 0.85rem);

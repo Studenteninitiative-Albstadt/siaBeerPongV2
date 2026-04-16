@@ -97,6 +97,7 @@
         :tournament-id="tournament?.id"
         :teams="koPreviewTeams"
         :ko-size="targetKoSize || null"
+        :team-players="teamPlayers"
         @back="handleKoBack"
         @saved="handleKoSaved"
       />
@@ -181,6 +182,7 @@ async function fetchTournamentsList() {
 async function loadTournament(id) {
   try {
     const data = await api.tournaments.loadAllData(id)
+    store.applyState(data)
     const t = data.tournament ?? {}
     tournament.value = {
       id: t.id, name: t.name, mode: t.mode ?? 'groups',

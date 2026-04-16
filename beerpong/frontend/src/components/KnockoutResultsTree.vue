@@ -32,7 +32,7 @@
                   :class="slotClass(match.team1)"
                 >
                   <div class="bracket-slot__seed">{{ match.team1.sourceLabel }}</div>
-                  <div v-if="match.team1.metaLabel" class="bracket-slot__team">
+                  <div class="bracket-slot__team">
                     {{ match.team1.metaLabel }}
                   </div>
                 </div>
@@ -44,7 +44,7 @@
                   :class="slotClass(match.team2)"
                 >
                   <div class="bracket-slot__seed">{{ match.team2.sourceLabel }}</div>
-                  <div v-if="match.team2.metaLabel" class="bracket-slot__team">
+                  <div class="bracket-slot__team">
                     {{ match.team2.metaLabel }}
                   </div>
                 </div>
@@ -74,7 +74,7 @@
 
               <div class="bracket-slot" :class="slotClass(finalMatch.team1)">
                 <div class="bracket-slot__seed">{{ finalMatch.team1.sourceLabel }}</div>
-                <div v-if="finalMatch.team1.metaLabel" class="bracket-slot__team">
+                <div class="bracket-slot__team">
                   {{ finalMatch.team1.metaLabel }}
                 </div>
               </div>
@@ -83,7 +83,7 @@
 
               <div class="bracket-slot" :class="slotClass(finalMatch.team2)">
                 <div class="bracket-slot__seed">{{ finalMatch.team2.sourceLabel }}</div>
-                <div v-if="finalMatch.team2.metaLabel" class="bracket-slot__team">
+                <div class="bracket-slot__team">
                   {{ finalMatch.team2.metaLabel }}
                 </div>
               </div>
@@ -113,7 +113,7 @@
 
               <div class="bracket-slot" :class="slotClass(thirdPlaceMatch.team1)">
                 <div class="bracket-slot__seed">{{ thirdPlaceMatch.team1.sourceLabel }}</div>
-                <div v-if="thirdPlaceMatch.team1.metaLabel" class="bracket-slot__team">
+                <div class="bracket-slot__team">
                   {{ thirdPlaceMatch.team1.metaLabel }}
                 </div>
               </div>
@@ -122,7 +122,7 @@
 
               <div class="bracket-slot" :class="slotClass(thirdPlaceMatch.team2)">
                 <div class="bracket-slot__seed">{{ thirdPlaceMatch.team2.sourceLabel }}</div>
-                <div v-if="thirdPlaceMatch.team2.metaLabel" class="bracket-slot__team">
+                <div class="bracket-slot__team">
                   {{ thirdPlaceMatch.team2.metaLabel }}
                 </div>
               </div>
@@ -164,7 +164,7 @@
                   :class="slotClass(match.team1)"
                 >
                   <div class="bracket-slot__seed">{{ match.team1.sourceLabel }}</div>
-                  <div v-if="match.team1.metaLabel" class="bracket-slot__team">
+                  <div class="bracket-slot__team">
                     {{ match.team1.metaLabel }}
                   </div>
                 </div>
@@ -176,7 +176,7 @@
                   :class="slotClass(match.team2)"
                 >
                   <div class="bracket-slot__seed">{{ match.team2.sourceLabel }}</div>
-                  <div v-if="match.team2.metaLabel" class="bracket-slot__team">
+                  <div class="bracket-slot__team">
                     {{ match.team2.metaLabel }}
                   </div>
                 </div>
@@ -359,6 +359,22 @@ const zoomStyle = computed(() => {
   return { zoom: s }
 })
 
+const layoutSignature = computed(() =>
+  JSON.stringify(
+    (props.rounds || []).map(round => ({
+      bracket_type: round?.bracket_type || 'main',
+      round_name: round?.round_name || '',
+      matches: (round?.matches || []).map(match => ({
+        id: match?.id ?? null,
+        label: match?.label ?? match?.match_label ?? '',
+        team1: match?.team1 ?? '',
+        team2: match?.team2 ?? '',
+        winner: match?.winner ?? '',
+      })),
+    }))
+  )
+)
+
 async function _remeasure() {
   await nextTick()
   const el = layoutRef.value
@@ -386,7 +402,7 @@ onMounted(() => {
   _remeasure()
 })
 onUnmounted(() => _ro?.disconnect())
-watch(() => props.rounds, () => _remeasure(), { deep: true, flush: 'post' })
+watch(layoutSignature, () => _remeasure(), { flush: 'post' })
 </script>
 
 <style scoped>
@@ -615,6 +631,11 @@ watch(() => props.rounds, () => _remeasure(), { deep: true, flush: 'post' })
   font-size: 0.74rem;
   margin-top: 0.24rem;
   line-height: 1.18;
+  min-height: 0.9rem;
+}
+
+.bracket-slot__team:empty::before {
+  content: '\00a0';
 }
 
 .bracket-tree--compact .bracket-match {

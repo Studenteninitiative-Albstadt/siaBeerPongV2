@@ -20,7 +20,7 @@
             class="badge rounded-pill px-3 py-2"
             :class="finaleWith10Cups ? 'bg-warning text-dark' : 'bg-secondary bg-opacity-75 text-light'"
           >
-            Finale & Platz 3: {{ finaleWith10Cups ? '10 Becher' : 'Standard' }}
+            Finale: {{ finaleWith10Cups ? '10 Becher' : 'Standard' }}
           </span>
         </div>
       </div>
@@ -303,7 +303,8 @@ const store = useTournamentStore()
 const props = defineProps({
   tournamentId: { type: Number, required: true },
   teams: { type: Array, default: () => [] },
-  koSize: { type: Number, default: null }
+  koSize: { type: Number, default: null },
+  teamPlayers: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['back', 'saved'])
@@ -373,12 +374,14 @@ function serializeKoRoundForRelease(round) {
     bracket_type: round.bracket_type || 'main',
     round_name: round.round_name || '',
     matches: (round.matches || [])
-      .filter(match => match?.team1 && match?.team2)
       .map((match, idx) => ({
-        ko_match_index: idx,
-        team1: match.team1,
-        team2: match.team2,
-      })),
+        ko_match_index: Number.isInteger(Number(match?.ko_match_index))
+          ? Number(match.ko_match_index)
+          : idx,
+        team1: match?.team1 || null,
+        team2: match?.team2 || null,
+      }))
+      .filter(match => match.team1 && match.team2),
   }
 }
 
@@ -513,9 +516,13 @@ function _findKoMatch(matchId) {
 function resolveKoTeamPlayers(teamName) {
   if (!teamName) return { p1: null, p2: null }
   const normalized = teamName.trim().toLowerCase()
-  const allPlayerKeys = Object.keys(store.teamPlayers || {})
+  const mergedTeamPlayers = {
+    ...(store.teamPlayers || {}),
+    ...(props.teamPlayers || {}),
+  }
+  const allPlayerKeys = Object.keys(mergedTeamPlayers)
   const exactKey = allPlayerKeys.find(k => k.trim().toLowerCase() === normalized)
-  const players = store.teamPlayers[exactKey || teamName] || {}
+  const players = mergedTeamPlayers[exactKey || teamName] || {}
   return {
     p1: players.player1 || null,
     p2: players.player2 || null,
@@ -855,7 +862,7 @@ const koSizeComputed = computed(() => {
 /**
  * Becher-Ziel:
  * - Normale Runden: baseCupsPerGame
- * - Finale UND Spiel um Platz 3: 10 Becher, wenn finaleWith10Cups = true
+ * - Finale: 10 Becher, wenn finaleWith10Cups = true
  */
 function cupsTargetForRound(rIdx) {
   const round = roundsLocal[rIdx]
@@ -868,9 +875,8 @@ function cupsTargetForRound(rIdx) {
 
   const finalIndex = mainIndices.length ? mainIndices[mainIndices.length - 1] : -1
   const isFinal = rIdx === finalIndex
-  const isPlacement = round.bracket_type === 'placement'
 
-  if ((isFinal || isPlacement) && finaleWith10Cups.value) {
+  if (isFinal && finaleWith10Cups.value) {
     return 10
   }
   return baseCupsPerGame.value || 6
@@ -993,16 +999,21 @@ function updatePlacementRound(roundsArr) {
   const newTeam1 = losers[0] || null
   const newTeam2 = losers[1] || null
 
-  const sameTeams = (match.team1 === newTeam1 && match.team2 === newTeam2)
-  if (!sameTeams) {
+  const resolvedTeam1 = newTeam1 || match.team1 || null
+  const resolvedTeam2 = newTeam2 || match.team2 || null
+  const teamsChanged =
+    (newTeam1 && match.team1 !== newTeam1) ||
+    (newTeam2 && match.team2 !== newTeam2)
+
+  if (teamsChanged) {
     match.cups_team1 = 0
     match.cups_team2 = 0
     match.winner = null
     match.table_no = null
   }
 
-  match.team1 = newTeam1
-  match.team2 = newTeam2
+  match.team1 = resolvedTeam1
+  match.team2 = resolvedTeam2
 }
 
 function propagateAll(rounds) {
@@ -1012,19 +1023,18 @@ function propagateAll(rounds) {
     if (!cur || !nxt) continue
     if (cur.bracket_type !== 'main' || nxt.bracket_type !== 'main') continue
 
-    nxt.matches.forEach(mm => {
-      mm.team1 = null
-      mm.team2 = null
-      mm.winner = null
-      mm.table_no = null
-    })
-
     cur.matches.forEach((m, idx) => {
       const w = m.winner || autoWinner(m.team1, m.team2)
       if (!w) return
       const tIdx = Math.floor(idx / 2)
       const pos = (idx % 2 === 0) ? 'team1' : 'team2'
-      nxt.matches[tIdx][pos] = w
+      const nextMatch = nxt.matches[tIdx]
+      if (!nextMatch) return
+      if (nextMatch[pos] !== w) {
+        nextMatch[pos] = w
+        nextMatch.winner = null
+        nextMatch.table_no = null
+      }
     })
   }
   updatePlacementRound(rounds)
@@ -1098,19 +1108,18 @@ function recalcPropagation(startRIdx) {
     if (!cur || !nxt) continue
     if (cur.bracket_type !== 'main' || nxt.bracket_type !== 'main') continue
 
-    nxt.matches.forEach(mm => {
-      mm.team1 = null
-      mm.team2 = null
-      mm.winner = null
-      mm.table_no = null
-    })
-
     cur.matches.forEach((mm, idx) => {
       const w = mm.winner || autoWinner(mm.team1, mm.team2)
       if (!w) return
       const tIdx = Math.floor(idx / 2)
       const pos = (idx % 2 === 0) ? 'team1' : 'team2'
-      nxt.matches[tIdx][pos] = w
+      const nextMatch = nxt.matches[tIdx]
+      if (!nextMatch) return
+      if (nextMatch[pos] !== w) {
+        nextMatch[pos] = w
+        nextMatch.winner = null
+        nextMatch.table_no = null
+      }
     })
   }
   updatePlacementRound(roundsLocal)
@@ -1194,19 +1203,27 @@ async function loadFromServer() {
       const derivedSize = Math.max(2, (mainRounds[0]?.matches?.length || 1) * 2)
       const size = props.koSize || derivedSize
       const totalRounds = Math.max(1, Math.log2(size) | 0)
+      const paddedMainRounds = []
+      for (let roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
+        const expectedMatchCount = Math.max(1, size >> (roundIdx + 1))
+        const existingRound = mainRounds[roundIdx]
+        const existingMatches = existingRound?.matches || []
+        const targetMatchCount = Math.max(expectedMatchCount, existingMatches.length)
+        const matches = existingMatches.slice()
 
-      if (mainRounds.length < totalRounds) {
-        for (let i = mainRounds.length; i < totalRounds; i++) {
-          const prevLen = mainRounds[mainRounds.length - 1]?.matches?.length || 2
-          mainRounds.push(buildEmptyRound(Math.max(1, prevLen >> 1)))
+        while (matches.length < targetMatchCount) {
+          matches.push(emptyMatch())
         }
+
+        paddedMainRounds.push({
+          ...(existingRound || buildEmptyRound(targetMatchCount)),
+          bracket_type: 'main',
+          round_name: roundNameFor(totalRounds, roundIdx),
+          matches,
+        })
       }
 
-      let mainIdx = 0
-      mainRounds = mainRounds.map(r => ({
-        ...r,
-        round_name: roundNameFor(totalRounds, mainIdx++)
-      }))
+      mainRounds = paddedMainRounds
 
       if (!placementRounds.length && size >= 4) {
         placementRounds.push(buildPlacementRound())
@@ -1258,6 +1275,16 @@ async function startNextKoRound() {
   if (!canStartNextKoRound.value) return
   loading.value = true
   try {
+    await fetch(`${API}/tournaments/${props.tournamentId}/save-ko-bracket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rounds: roundsLocal,
+        active_main_round_index: activeMainRoundIndex.value,
+        active_stage_kind: activeStageKind.value,
+      }),
+    })
+
     const mainInfos = getKoMainRoundInfos(roundsLocal)
     const nextMainInfo = mainInfos[activeMainRoundIndex.value + 1] || null
     const placementRound = roundsLocal.find(round => round?.bracket_type === 'placement') || null

@@ -698,6 +698,9 @@ class TournamentViewSet(ViewSet):
         result = {
             'id': match.id, 'team1': match.team1.name, 'team2': match.team2.name,
             'winner': winner_name, 'status': match.status,
+            'ko_round': match.ko_round,
+            'ko_bracket_type': match.ko_bracket_type,
+            'ko_match_index': match.ko_match_index,
             'table_no': int(match.table.name.replace('Tisch ', '')) if match.table and str(match.table.name).startswith('Tisch ') else None,
             'cups_team1': match.cups_team1, 'cups_team2': match.cups_team2,
             'cups_state_team1': match.cups_state_team1, 'cups_state_team2': match.cups_state_team2,
@@ -705,6 +708,7 @@ class TournamentViewSet(ViewSet):
             'top_players': full_state['top_players'],
         }
         broadcast(t.id, 'ko_match_updated', result)
+        broadcast(t.id, 'ko_updated', full_state)
         return Response(result)
 
     # ── Mobile access ─────────────────────────────────────────────────────────

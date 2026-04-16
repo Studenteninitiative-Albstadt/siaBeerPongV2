@@ -77,7 +77,7 @@
               <div class="card-body px-3 py-4">
                 <LiveTable3D
                   :match="m"
-                  :cups-per-game="cupsPerGame"
+                  :cups-per-game="m.match_cups_per_game ?? cupsPerGame"
                   :table-label="`Tisch ${m.table_no || idx + 1} • ${m.group_name || 'Gruppenphase'}`"
                   compact
                   show-score
@@ -169,7 +169,7 @@ import GroupStandingsTable from '../components/GroupStandingsTable.vue'
 import { getAssignedActiveMatches, getUpcomingMatches, getKOActiveMatches, getKOUpcomingMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
 import KnockoutResultsTree from '../components/KnockoutResultsTree.vue'
 import KnockoutPreviewTree from '../components/KnockoutPreviewTree.vue'
-import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
+import { inferKoMatchCupsTarget, normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
 const route = useRoute()
 const store = useTournamentStore()
@@ -300,6 +300,9 @@ const koPreviewSize = computed(() => {
 const cupsPerGame = computed(() =>
   Number(tournament.value?.cupsPerGame ?? tournament.value?.cups_per_game ?? 6) || 6
 )
+const finaleWith10Cups = computed(() =>
+  !!(tournament.value?.finaleWith10Cups ?? tournament.value?.finale_with_10_cups)
+)
 
 const activeTableCount = computed(() => {
   const count = Number(tournament.value?.tableCount ?? tournament.value?.table_count ?? 2)
@@ -340,8 +343,14 @@ const activeMatches = computed(() => {
     return activeKOMatches.value.map(m => ({
       ...m,
       group_name: m.round_name || 'KO-Phase',
-      cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsPerGame.value, m.cups_team2, !!m.is_overtime),
-      cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsPerGame.value, m.cups_team1, !!m.is_overtime),
+      ...(() => {
+        const cupsTarget = inferKoMatchCupsTarget(m, koRounds.value, cupsPerGame.value, finaleWith10Cups.value)
+        return {
+          match_cups_per_game: cupsTarget,
+          cups_state_team1: normalizeKoLiveState(m.cups_state_team1, cupsTarget, m.cups_team2, !!m.is_overtime),
+          cups_state_team2: normalizeKoLiveState(m.cups_state_team2, cupsTarget, m.cups_team1, !!m.is_overtime),
+        }
+      })(),
     }))
   }
   return getAssignedActiveMatches(store.groupPhase?.matches ?? {}, activeTableCount.value)

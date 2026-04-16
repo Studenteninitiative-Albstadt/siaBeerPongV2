@@ -102,10 +102,17 @@ function propagateMainRounds(rounds) {
 
       const expectedTeam1 = feederA ? (feederA.winner || autoWinner(feederA.team1, feederA.team2)) : null
       const expectedTeam2 = feederB ? (feederB.winner || autoWinner(feederB.team1, feederB.team2)) : null
+      const nextTeam1 = expectedTeam1 || nextMatch.team1 || null
+      const nextTeam2 = expectedTeam2 || nextMatch.team2 || null
+      const teamsChanged =
+        (expectedTeam1 && nextMatch.team1 !== expectedTeam1) ||
+        (expectedTeam2 && nextMatch.team2 !== expectedTeam2)
 
-      nextMatch.team1 = expectedTeam1 || null
-      nextMatch.team2 = expectedTeam2 || null
-      nextMatch.table_no = null
+      nextMatch.team1 = nextTeam1
+      nextMatch.team2 = nextTeam2
+      if (teamsChanged) {
+        nextMatch.table_no = null
+      }
 
       if (nextMatch.winner && nextMatch.winner !== nextMatch.team1 && nextMatch.winner !== nextMatch.team2) {
         nextMatch.winner = null
@@ -138,9 +145,17 @@ function updatePlacementRound(rounds) {
     losers.push(winner === match.team1 ? match.team2 : match.team1)
   }
 
-  placementMatch.team1 = losers[0] || null
-  placementMatch.team2 = losers[1] || null
-  placementMatch.table_no = null
+  const resolvedTeam1 = losers[0] || placementMatch.team1 || null
+  const resolvedTeam2 = losers[1] || placementMatch.team2 || null
+  const teamsChanged =
+    (losers[0] && placementMatch.team1 !== losers[0]) ||
+    (losers[1] && placementMatch.team2 !== losers[1])
+
+  placementMatch.team1 = resolvedTeam1
+  placementMatch.team2 = resolvedTeam2
+  if (teamsChanged) {
+    placementMatch.table_no = null
+  }
 
   if (
     placementMatch.winner &&
@@ -302,6 +317,33 @@ export function getKoStageMeta(rounds = [], explicitIndex = null, explicitStageK
   }
 }
 
+export function getKoFinalRoundName(rounds = []) {
+  const mainInfos = getKoMainRoundInfos(rounds)
+  return mainInfos.length ? (mainInfos[mainInfos.length - 1]?.round?.round_name || null) : null
+}
+
+export function inferKoMatchCupsTarget(match = {}, rounds = [], baseCupsPerGame = 6, finaleWith10Cups = false) {
+  const parsedBase = Number(baseCupsPerGame)
+  const fallbackTarget = Number.isFinite(parsedBase) && parsedBase > 0 ? parsedBase : 6
+
+  const explicitStateSizes = [match?.cups_state_team1, match?.cups_state_team2]
+    .filter(Array.isArray)
+    .map(state => state.length)
+    .filter(size => size === 6 || size === 10)
+
+  if (explicitStateSizes.includes(10)) return 10
+  if (explicitStateSizes.includes(6)) return 6
+
+  const finalRoundName = getKoFinalRoundName(rounds)
+  const isFinalMatch =
+    !!finaleWith10Cups &&
+    (match?.bracket_type || 'main') !== 'placement' &&
+    !!finalRoundName &&
+    String(match?.round_name || '') === String(finalRoundName)
+
+  return isFinalMatch ? 10 : fallbackTarget
+}
+
 export function normalizeKoRoundsForDisplay(rawRounds = [], explicitKoSize = null) {
   const normalized = (rawRounds || []).map(normalizeStoredRound)
   if (!normalized.length) return []
@@ -316,16 +358,28 @@ export function normalizeKoRoundsForDisplay(rawRounds = [], explicitKoSize = nul
   const derivedSize = Math.max(2, (mainRounds[0]?.matches?.length || 1) * 2)
   const bracketSize = Math.max(2, Number(explicitKoSize) || 0, derivedSize)
   const totalRounds = Math.max(1, Math.floor(Math.log2(bracketSize)))
+  const paddedMainRounds = []
 
-  while (mainRounds.length < totalRounds) {
-    const prevLen = mainRounds[mainRounds.length - 1]?.matches?.length || 2
-    mainRounds.push(buildEmptyRound(Math.max(1, prevLen >> 1)))
+  for (let roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
+    const expectedMatchCount = Math.max(1, bracketSize >> (roundIdx + 1))
+    const existingRound = mainRounds[roundIdx]
+    const existingMatches = existingRound?.matches || []
+    const targetMatchCount = Math.max(expectedMatchCount, existingMatches.length)
+    const matches = existingMatches.slice()
+
+    while (matches.length < targetMatchCount) {
+      matches.push(emptyMatch())
+    }
+
+    paddedMainRounds.push({
+      ...(existingRound || buildEmptyRound(targetMatchCount)),
+      bracket_type: 'main',
+      round_name: roundNameFor(totalRounds, roundIdx),
+      matches,
+    })
   }
 
-  mainRounds = mainRounds.map((round, idx) => ({
-    ...round,
-    round_name: roundNameFor(totalRounds, idx),
-  }))
+  mainRounds = paddedMainRounds
 
   if (!placementRounds.length && bracketSize >= 4) {
     placementRounds = [buildPlacementRound()]
