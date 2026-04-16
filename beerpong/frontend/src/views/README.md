@@ -1,31 +1,30 @@
 # Frontend Views (Seiten)
 
-Die Views kombinieren Komponenten zu funktionalen Einheiten für verschiedene Benutzergruppen.
+Kombination von Komponenten zu spezialisierten Benutzer-Schnittstellen.
 
-## Haupt-Views & Verantwortlichkeiten
+## Übersicht der Haupt-Views
 
-| Datei | Zielgruppe | Hauptaufgabe |
+| View | Rolle | Fokus |
 |---|---|---|
-| `AdminView.vue` | Orga-Team | Turnieranlage, Phasen-Steuerung (Groups/KO). |
-| `LiveView.vue` | Teilnehmer | Beamer-Übersicht, QR-Code für Mobile, Live-Scores. |
-| `MobileView.vue` | Spieler | Persönlicher Spielplan, Gruppenstände, KO-Bracket. |
-| `LoginView.vue` | Alle | JWT-Handshake für Authentifizierung. |
+| `AdminView.vue` | Orga | Phasen-Management, Live-Scoring. |
+| `LiveView.vue` | Beamer | Gruppen-Live-Status, 3/4 Split-Layout, QR-Code. |
+| `LiveViewKO.vue` | Beamer | KO-Live-Status (Full-Bracket + Live Tables). |
+| `MobileView.vue` | Spieler | Persönlicher Turnier-Status (Token-basiert). |
 
-## Der Admin-Workflow (Phasen-Umschaltung)
+## Layout-Innovationen
 
-Die `AdminView` steuert das Turnier über einen internen `step`-State.
+### 3/4 Split-Architektur
+Die Live-Ansichten (`LiveView` & `LiveViewKO`) nutzen nun ein dynamisches Höhen-Management:
+- **Oben (ca. 70%)**: Fokus auf Live-Spiele (3D Tische).
+- **Unten (ca. 30%)**: Kontext-Informationen (Gruppenstände, Brackets, QR-Code).
 
-```text
-[ Step 0-3: Wizard ] --> [ Step 4: Gruppen ] --> [ Step 7: Play-In ] --> [ Step 5: KO-Phase ]
-         |                       |                       |                      |
-         v                       v                       v                      v
-   Initial-Setup           Live-Scoring            Wildcards              Final-Runden
-```
+### Phasen-Synchronisation
+Die `LiveView` schaltet automatisch zwischen Gruppen-Layout und KO-Layout (`LiveViewKO.vue`) um, sobald der Turnierstatus im Backend geändert wird.
 
-## Besonderheiten der LiveView
-
-- **Beamer-Optimierung**: Große Schriften, hoher Kontrast, QR-Code-Overlay.
-- **Auto-Umschaltung**: Wechselt bei Turnierphasen-Änderung (via WebSockets) automatisch das Layout.
+### QR-Code Optimierung
+Der QR-Code Bereich wurde für Beamer-Entfernungen optimiert:
+- **Quadratisches Fix-Format**: Verhindert Verzerrungen.
+- **Ultra-Compact URL**: Minimierte Schriftgrößen und radikaler Umbruch für lange Tokens.
 
 ---
-*Status: 15. April 2026*
+*Status: 15. April 2026 - Split-Layout & KO-Views Documented*

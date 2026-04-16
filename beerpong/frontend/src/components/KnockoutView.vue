@@ -1134,6 +1134,108 @@ function onBracketIncrementCup({ roundIndex, matchIndex, team }) {
 }
 
 /* Server I/O */
+function applyKoPhaseSnapshot(koPhaseSnapshot = {}, tournamentSnapshot = null) {
+  const t = tournamentSnapshot ?? {}
+  const parsedBaseCups = Number(t.cupsPerGame ?? t.cups_per_game)
+  if (Number.isFinite(parsedBaseCups) && parsedBaseCups > 0) {
+    baseCupsPerGame.value = parsedBaseCups
+  }
+  if (Object.prototype.hasOwnProperty.call(t, 'finaleWith10Cups') || Object.prototype.hasOwnProperty.call(t, 'finale_with_10_cups')) {
+    finaleWith10Cups.value = !!(t.finaleWith10Cups ?? t.finale_with_10_cups)
+  }
+  const tc = Number(t.tableCount ?? t.table_count)
+  if (Number.isFinite(tc) && tc > 0) tableCount.value = tc
+
+  const serverRounds = koPhaseSnapshot?.rounds || []
+  const serverActiveMainRoundIndex = koPhaseSnapshot?.active_main_round_index ?? koPhaseSnapshot?.activeMainRoundIndex ?? null
+  const serverActiveStageKind = koPhaseSnapshot?.active_stage_kind ?? koPhaseSnapshot?.activeStageKind ?? null
+
+  if (serverRounds.length > 0) {
+    let all = serverRounds.map(r => ({
+      bracket_type: r.bracket_type || 'main',
+      round_name: r.round_name || '',
+      matches: (r.matches || []).map(m => {
+        const team1 = m.team1 ?? null
+        const team2 = m.team2 ?? null
+        const cups1 = +m.cups_team1 || 0
+        const cups2 = +m.cups_team2 || 0
+        const status = m.status ?? (m.winner ? 'done' : 'pending')
+        const winner =
+          (m.winner === team1 || m.winner === team2)
+            ? m.winner
+            : (status === 'done' && team1 && team2 && cups1 !== cups2
+              ? (cups1 > cups2 ? team1 : team2)
+              : null)
+
+        return {
+          id: m.id ?? null,
+          ko_match_index: Number.isInteger(Number(m.ko_match_index)) ? Number(m.ko_match_index) : null,
+          team1,
+          team2,
+          winner,
+          status,
+          table_no: Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0 ? Number(m.table_no) : null,
+          cups_team1: cups1,
+          cups_team2: cups2,
+          cups_state_team1: Array.isArray(m.cups_state_team1) && m.cups_state_team1.length ? m.cups_state_team1 : null,
+          cups_state_team2: Array.isArray(m.cups_state_team2) && m.cups_state_team2.length ? m.cups_state_team2 : null,
+          is_overtime: !!m.is_overtime,
+          rerack_used_team1: false,
+          rerack_used_team2: false,
+        }
+      })
+    }))
+
+    let mainRounds = all.filter(r => r.bracket_type !== 'placement')
+    let placementRounds = all.filter(r => r.bracket_type === 'placement')
+
+    const derivedSize = Math.max(2, (mainRounds[0]?.matches?.length || 1) * 2)
+    const size = props.koSize || derivedSize
+    const totalRounds = Math.max(1, Math.log2(size) | 0)
+    const paddedMainRounds = []
+    for (let roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
+      const expectedMatchCount = Math.max(1, size >> (roundIdx + 1))
+      const existingRound = mainRounds[roundIdx]
+      const existingMatches = existingRound?.matches || []
+      const targetMatchCount = Math.max(expectedMatchCount, existingMatches.length)
+      const matches = existingMatches.slice()
+
+      while (matches.length < targetMatchCount) {
+        matches.push(emptyMatch())
+      }
+
+      paddedMainRounds.push({
+        ...(existingRound || buildEmptyRound(targetMatchCount)),
+        bracket_type: 'main',
+        round_name: roundNameFor(totalRounds, roundIdx),
+        matches,
+      })
+    }
+
+    mainRounds = paddedMainRounds
+
+    if (!placementRounds.length && size >= 4) {
+      placementRounds.push(buildPlacementRound())
+    }
+
+    const rounds = [...mainRounds, ...placementRounds]
+    propagateAll(rounds)
+    applyRounds(rounds)
+    const parsedActiveRoundIndex = Number(serverActiveMainRoundIndex)
+    activeMainRoundIndex.value = Number.isInteger(parsedActiveRoundIndex)
+      ? parsedActiveRoundIndex
+      : getKoStageMeta(roundsLocal, null).activeMainRoundIndex
+    activeStageKind.value = serverActiveStageKind ?? getKoStageMeta(roundsLocal, activeMainRoundIndex.value).activeStageKind
+    return true
+  }
+
+  if (roundsLocal.length === 0 && initialTeams.value.length > 0) {
+    seedBracket()
+    return true
+  }
+  return false
+}
+
 async function loadFromServer() {
   loading.value = true
   try {
@@ -1142,104 +1244,19 @@ async function loadFromServer() {
       fetch(`${API}/tournaments/${props.tournamentId}/load-all-data`).catch(() => null)
     ])
 
+    let tournamentSnapshot = null
     if (resData && resData.ok) {
       const tData = await resData.json()
-      const t = tData?.tournament ?? {}
-      baseCupsPerGame.value = Number.isFinite(+t.cupsPerGame) ? +t.cupsPerGame : 6
-      finaleWith10Cups.value = !!t.finaleWith10Cups
-      const tc = Number(t.tableCount ?? t.table_count)
-      if (Number.isFinite(tc) && tc > 0) tableCount.value = tc
+      tournamentSnapshot = tData?.tournament ?? null
     }
     _tableCountLoading.value = false
 
-    let serverRounds = []
-    let serverActiveMainRoundIndex = null
-    let serverActiveStageKind = null
+    let koPhaseSnapshot = null
     if (resBracket && resBracket.ok) {
       const bracketData = await resBracket.json().catch(() => null)
-      serverRounds = bracketData?.rounds || []
-      serverActiveMainRoundIndex = bracketData?.active_main_round_index ?? bracketData?.activeMainRoundIndex ?? null
-      serverActiveStageKind = bracketData?.active_stage_kind ?? bracketData?.activeStageKind ?? null
+      koPhaseSnapshot = bracketData
     }
-
-    if (serverRounds.length > 0) {
-      let all = serverRounds.map(r => ({
-        bracket_type: r.bracket_type || 'main',
-        round_name: r.round_name || '',
-        matches: (r.matches || []).map(m => {
-          const team1 = m.team1 ?? null
-          const team2 = m.team2 ?? null
-          const cups1 = +m.cups_team1 || 0
-          const cups2 = +m.cups_team2 || 0
-          const status = m.status ?? (m.winner ? 'done' : 'pending')
-          const winner =
-            (m.winner === team1 || m.winner === team2)
-              ? m.winner
-              : (status === 'done' && team1 && team2 && cups1 !== cups2
-                ? (cups1 > cups2 ? team1 : team2)
-                : null)
-
-          return {
-            id: m.id ?? null,
-            team1,
-            team2,
-            winner,
-            status,
-            table_no: Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0 ? Number(m.table_no) : null,
-            cups_team1: cups1,
-            cups_team2: cups2,
-            cups_state_team1: Array.isArray(m.cups_state_team1) && m.cups_state_team1.length ? m.cups_state_team1 : null,
-            cups_state_team2: Array.isArray(m.cups_state_team2) && m.cups_state_team2.length ? m.cups_state_team2 : null,
-            is_overtime: !!m.is_overtime,
-            rerack_used_team1: false,
-            rerack_used_team2: false,
-          }
-        })
-      }))
-
-      let mainRounds = all.filter(r => r.bracket_type !== 'placement')
-      let placementRounds = all.filter(r => r.bracket_type === 'placement')
-
-      const derivedSize = Math.max(2, (mainRounds[0]?.matches?.length || 1) * 2)
-      const size = props.koSize || derivedSize
-      const totalRounds = Math.max(1, Math.log2(size) | 0)
-      const paddedMainRounds = []
-      for (let roundIdx = 0; roundIdx < totalRounds; roundIdx++) {
-        const expectedMatchCount = Math.max(1, size >> (roundIdx + 1))
-        const existingRound = mainRounds[roundIdx]
-        const existingMatches = existingRound?.matches || []
-        const targetMatchCount = Math.max(expectedMatchCount, existingMatches.length)
-        const matches = existingMatches.slice()
-
-        while (matches.length < targetMatchCount) {
-          matches.push(emptyMatch())
-        }
-
-        paddedMainRounds.push({
-          ...(existingRound || buildEmptyRound(targetMatchCount)),
-          bracket_type: 'main',
-          round_name: roundNameFor(totalRounds, roundIdx),
-          matches,
-        })
-      }
-
-      mainRounds = paddedMainRounds
-
-      if (!placementRounds.length && size >= 4) {
-        placementRounds.push(buildPlacementRound())
-      }
-
-      const rounds = [...mainRounds, ...placementRounds]
-      propagateAll(rounds)
-      roundsLocal.splice(0, roundsLocal.length, ...rounds)
-      const parsedActiveRoundIndex = Number(serverActiveMainRoundIndex)
-      activeMainRoundIndex.value = Number.isInteger(parsedActiveRoundIndex)
-        ? parsedActiveRoundIndex
-        : getKoStageMeta(roundsLocal, null).activeMainRoundIndex
-      activeStageKind.value = serverActiveStageKind ?? getKoStageMeta(roundsLocal, activeMainRoundIndex.value).activeStageKind
-    } else if (initialTeams.value.length > 0) {
-      seedBracket()
-    }
+    applyKoPhaseSnapshot(koPhaseSnapshot || {}, tournamentSnapshot)
   } catch (e) {
     console.error(e)
     if (roundsLocal.length === 0 && initialTeams.value.length > 0) seedBracket()
@@ -1353,6 +1370,12 @@ async function saveSingleKoMatch(rIdx, mIdx, m, eventData = null) {
 function applyRounds(newRounds) {
   roundsLocal.splice(0, roundsLocal.length, ...(newRounds ?? []))
 }
+
+watch(() => store.koPhase, (newKoPhase) => {
+  if (pendingKoShooter.value || pendingKoConclusion.value) return
+  if (!newKoPhase?.rounds) return
+  applyKoPhaseSnapshot(newKoPhase, store.tournament || null)
+}, { deep: true })
 
 onMounted(async () => {
   await loadFromServer()

@@ -14,6 +14,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!accessToken.value)
   const isOrga       = computed(() => !!payload.value?.is_orga)
   const isLiveview   = computed(() => !!payload.value?.is_liveview)
+  const isRoot       = computed(() => !!payload.value?.is_root)
   const username     = computed(() => payload.value?.username ?? null)
 
   async function login(user, pass) {
@@ -33,5 +34,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('refresh_token')
   }
 
-  return { accessToken, refreshToken, isAuthenticated, isOrga, isLiveview, username, login, logout }
+  return { accessToken, refreshToken, isAuthenticated, isOrga, isLiveview, isRoot, username, login, logout }
 })

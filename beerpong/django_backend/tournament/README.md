@@ -1,45 +1,21 @@
 # Tournament Application
 
-Diese Applikation implementiert die gesamte Turnier-Domänenlogik, von der API bis zur WebSocket-Synchronisation.
+Domänenlogik für die Verwaltung von Turnieren, Teams und Spieler-Statistiken.
 
 ## Dateisystem & Zuständigkeiten
 
 | Datei | Zweck |
 |---|---|
-| `models.py` | Datenstruktur für Turniere, Teams, Gruppen & Matches. |
-| `views.py` | DRF-ViewSet mit über 15 spezialisierten Endpunkten (Snapshots, Updates). |
-| `services.py` | Das "Gehirn" des Backends: Gruppenberechnungen & Seeding. |
-| `consumers.py` | WebSocket-Handler für Echtzeit-Kommunikation. |
-| `serializers.py` | Transformation zwischen DB-Objekten und JSON. |
-| `auth.py` | Implementiert JWT-Authentifizierung & Rollenprüfung. |
+| `models.py` | Datenstruktur (Tournament, Team, Match, CupHit). |
+| `views.py` | API-Endpoints (CRUD & Custom Actions wie `save-ko-preview`). |
+| `services.py` | Berechnungs-Engine (Standings, Gruppen-Generation). |
+| `consumers.py` | Echtzeit-Synchronisation via WebSockets. |
 
-## Der "Snapshot"-Mechanismus
+## Daten-Integrität
 
-Statt viele kleine API-Calls zu machen, nutzt das System einen Snapshot-Ansatz.
-
-```text
-[ Client Connect ]
-      |
-      v
-[ GET /load-all-data ] -----------------+
-      |                                 |
-      v                                 v
-[ API Response ] <---( Snapshot )--- [ Services.build_snapshot ]
-      |
-      +---( Store in Pinia )
-```
-
-## Berechtigungs-Workflow
-
-Das System unterscheidet zwischen Orga (Admin), LiveView (Beamer) und Mobile (Public).
-
-```text
-Rolle       | Token-Typ       | Berechtigung
-------------|-----------------|---------------------------------
-Orga        | JWT (is_orga)   | Vollzugriff (CRUD + Mutation)
-LiveView    | JWT (is_live)   | Read-Only + Snapshot
-Mobile      | UUID (Token)    | Read-Only Mobile-State
-```
+- **Snapshot-Architektur**: Das Backend liefert bei jedem Connect/Update einen vollständigen oder teilweisen Snapshot des Turnier-Zustands (`load-all-data`).
+- **KO-Vorschau Persistenz**: Die berechneten KO-Paarungen werden im `Tiebreak`-Modell zwischengespeichert, um Konsistenz zwischen Admin-Vorschau und Live-Anzeige zu garantieren.
+- **Single Source of Truth**: Alle kritischen Berechnungen (Punkte, Standings) finden im Backend statt, um Inkonsistenzen im Frontend zu vermeiden.
 
 ---
-*Status: 15. April 2026*
+*Status: 15. April 2026 - Data Consistency Verified*

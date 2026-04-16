@@ -101,16 +101,69 @@
         @back="handleKoBack"
         @saved="handleKoSaved"
       />
+
+      <!-- Referee assignment panel — independent v-if, completely outside the step chain -->
+      <div v-if="auth.isRoot && tournament?.id && step >= 4 && step !== 6"
+           class="card bg-black border-warning text-light mt-4">
+        <div class="card-header bg-black border-warning d-flex justify-content-between align-items-center"
+             style="cursor:pointer" @click="showRefereePanel = !showRefereePanel">
+          <strong class="text-warning">Schiedsrichter-Zuweisung</strong>
+          <span class="text-secondary small">{{ showRefereePanel ? '▲ Einklappen' : '▼ Aufklappen' }}</span>
+        </div>
+        <div v-if="showRefereePanel" class="card-body">
+          <div v-if="refereesLoading" class="text-secondary small">Lade…</div>
+          <div v-else-if="refereeList.length === 0" class="text-secondary small">
+            Keine Schiedsrichter-Accounts vorhanden. Erstelle Benutzer mit <code>is_orga=True</code>.
+          </div>
+          <div v-else>
+            <div v-for="ref in refereeList" :key="ref.id"
+                 class="d-flex align-items-center gap-3 py-2 border-bottom border-secondary">
+              <div class="fw-bold" style="min-width:120px">{{ ref.username }}</div>
+              <div class="flex-grow-1 text-secondary small">
+                <span v-if="ref.assignment">
+                  ✅ {{ ref.assignment.team1 }} vs {{ ref.assignment.team2 }}
+                  <span class="badge bg-secondary ms-1">{{ ref.assignment.phase === 'ko' ? 'KO' : 'Gruppe ' + (ref.assignment.group_name ?? '') }}</span>
+                </span>
+                <span v-else class="text-muted">Kein Spiel zugewiesen</span>
+              </div>
+              <div class="d-flex gap-2 flex-wrap">
+                <select class="form-select form-select-sm bg-dark text-light border-secondary"
+                        style="max-width:220px"
+                        v-model="pendingAssign[ref.id]">
+                  <option :value="null">— Kein Spiel —</option>
+                  <option v-for="m in activeMatchesForAssign" :key="m.id" :value="m.id">
+                    Tisch {{ m.table_no }} · {{ m.team1 }} vs {{ m.team2 }} ({{ m.phase === 'ko' ? 'KO' : 'Gr. ' + (m.group_name ?? '') }})
+                  </option>
+                </select>
+                <button class="btn btn-sm btn-warning"
+                        @click="assignReferee(ref.id)"
+                        :disabled="pendingAssign[ref.id] === undefined">
+                  Zuweisen
+                </button>
+                <button v-if="ref.assignment"
+                        class="btn btn-sm btn-outline-danger"
+                        @click="unassignReferee(ref.id)">
+                  Abziehen
+                </button>
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary mt-3" @click="loadReferees">
+            Aktualisieren
+          </button>
+        </div>
+      </div>
     </main>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { useTournamentStore } from '../stores/tournament.js'
 import { api } from '../api.js'
+import { getAssignedActiveMatches, getKOActiveMatches } from '../utils/tableAssignments.js'
 
 import HeaderBar        from '../components/HeaderBar.vue'
 import InfoPanel        from '../components/InfoPanel.vue'
@@ -148,6 +201,83 @@ const playInMatches   = ref([])
 const rageCageGroups  = ref([])
 const policyNotes     = ref([])
 const playInCandidates = ref([])
+
+// ── Referee assignment (root only) ───────────────────────────────────────────
+const showRefereePanel = ref(false)
+const refereeList      = ref([])
+const refereesLoading  = ref(false)
+const pendingAssign    = ref({})  // { [referee_id]: match_id | null }
+
+const activeMatchesForAssign = computed(() => {
+  const tableCount = tournament.value?.tableCount ?? tournament.value?.table_count ?? 2
+  const phase = tournament.value?.current_phase ?? tournament.value?.currentPhase ?? 'group'
+
+  if (phase === 'ko') {
+    const koState = store.koPhase ?? {}
+    return getKOActiveMatches(
+      koState.rounds ?? [],
+      tableCount,
+      koState.active_main_round_index ?? koState.activeMainRoundIndex ?? null,
+      koState.active_stage_kind ?? koState.activeStageKind ?? null,
+    ).map(m => ({ id: m.id, team1: m.team1, team2: m.team2, phase: 'ko', group_name: null, table_no: m.table_no }))
+  }
+
+  // Group / playin phase — only matches currently on a table
+  return getAssignedActiveMatches(store.groupPhase?.matches ?? {}, tableCount)
+    .map(m => ({
+      id: m.id,
+      team1: m.team1,
+      team2: m.team2,
+      phase: 'group',
+      group_name: m.group_name,
+      table_no: m.table_no,
+    }))
+})
+
+async function loadReferees() {
+  if (!tournament.value?.id) return
+  refereesLoading.value = true
+  try {
+    const list = await api.tournaments.referees(tournament.value.id)
+    refereeList.value = Array.isArray(list) ? list : []
+    // Pre-populate pendingAssign with current assignments
+    for (const r of refereeList.value) {
+      if (pendingAssign.value[r.id] === undefined) {
+        pendingAssign.value[r.id] = r.assignment?.match_id ?? null
+      }
+    }
+  } catch { refereeList.value = [] }
+  finally  { refereesLoading.value = false }
+}
+
+async function assignReferee(refereeId) {
+  if (!tournament.value?.id) return
+  const matchId = pendingAssign.value[refereeId] ?? null
+  try {
+    await api.tournaments.assignReferee(tournament.value.id, {
+      referee_id: refereeId,
+      match_id: matchId,
+    })
+    await loadReferees()
+  } catch (e) { console.error('assign referee failed', e) }
+}
+
+async function unassignReferee(refereeId) {
+  if (!tournament.value?.id) return
+  try {
+    await api.tournaments.assignReferee(tournament.value.id, {
+      referee_id: refereeId,
+      match_id: null,
+    })
+    pendingAssign.value[refereeId] = null
+    await loadReferees()
+  } catch (e) { console.error('unassign referee failed', e) }
+}
+
+// Auto-load referees when panel is opened
+watch(showRefereePanel, (open) => {
+  if (open) loadReferees()
+})
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 onMounted(() => fetchTournamentsList().catch(() => {}))

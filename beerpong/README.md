@@ -1,10 +1,8 @@
 # SIA BeerPong - App context
 
-Dies ist das zentrale Arbeitsverzeichnis für den Turniermanager. Es verwaltet die Orchestrierung der verschiedenen Services und den Übergang von Flask zu Django.
+Zentrales Verzeichnis für die Orchestrierung und den Turnier-Lifecycle.
 
 ## Service-Infrastruktur
-
-Das Projekt wird über `docker-compose.yml` orchestriert.
 
 ```text
        [ Externer Zugriff ]
@@ -15,40 +13,19 @@ Das Projekt wird über `docker-compose.yml` orchestriert.
 (Port 5173)        (Port 8000)                (WebSocket Layer)
 ```
 
-- **redis**: Ermöglicht asynchrone Kommunikation über Django Channels.
-- **backend**: Django REST API für Datenpersistenz und Turnierlogik.
-- **frontend**: Single-Page-Application für Admin, Teilnehmer und Mobile.
+## Turnier-Lifecycle & UI-Fokus
 
-## Der Turnier-Workflow (Logical Flow)
+Der Lifecycle wird durch spezialisierte Frontend-Komponenten visualisiert:
 
-Die Orchestrierung des Turniers folgt einer festen Phasen-Logik:
+1. **Setup**: Wizard-basierte Team-Erfassung.
+2. **Gruppenphase**: Live-Scoring mit stabilen Tischzuweisungen.
+3. **KO-Phase**: Dynamisches Bracket-Rendering und Beamer-optimierte 3D-Tischansicht.
 
-```text
-[ SETUP ] --> [ GRUPPENPHASE ] --> [ PLAY-IN ] --> [ KO-PHASE ]
-    |               |                  |               |
-    |               |                  |               +--> Siegerehrung
-    |               |                  +--> Tie-Break & Wildcards
-    |               +--> Tischzuweisung & Live-Stats
-    +--> Team-Registration & Wizard
-```
+## UI-Design-Prinzipien
 
-## Verzeichnis-Inhalt
-
-```text
-.
-├── docker-compose.yml     # Definiert Services & Volumes
-├── django_backend/        # AKTIV: Kernlogik & Datenbank
-├── frontend/              # AKTIV: UI-Logik & State-Management
-└── backend/               # LEGACY: Referenz-Code (Flask)
-```
-
-## Wichtige Schnittstellen
-
-| Endpunkt | Service | Zweck |
-|---|---|---|
-| `:5173/` | Frontend | Startseite / App |
-| `:8000/django-admin/` | Backend | Direkte Datenbank-Administration |
-| `:8000/health` | Backend | API-Healthcheck |
+- **Proportional Scaling**: Tische skalieren basierend auf Breite und Höhe, um Overlap zu vermeiden.
+- **Visual Feedback**: Ball-Animationen und Becher-Zustände werden in Echtzeit visualisiert.
+- **Compact Data**: Mobile Ansichten sind platzoptimiert (QR-Code Integration).
 
 ---
-*Status: 15. April 2026*
+*Status: 15. April 2026 - Layout & Scaling Refined*

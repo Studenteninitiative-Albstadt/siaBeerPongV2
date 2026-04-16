@@ -1,16 +1,16 @@
 # Frontend Utilities
 
-Hier befinden sich die algorithmischen Komponenten, die den physischen Turnierfluss steuern und Datenformate normalisieren.
+Algorithmische Basis für den Turnierfluss und die visuelle Konsistenz.
 
 ## Tischbelegungs-Logik (`tableAssignments.js`)
 
-Diese Komponente ist essenziell für einen reibungslosen Ablauf vor Ort. Sie berechnet, welche Spiele auf welchen physischen Tischen stattfinden.
+Stellt sicher, dass Spiele stabil auf physischen Tischen bleiben.
 
 ```text
 [ Alle offenen Matches ]
            |
    +-------v-------+
-   | Pass 1: Persisted | (Matches mit fester Tisch-ID vom Backend)
+   | Pass 1: Persisted | (Matches mit fester Tisch-ID)
    +-------+-------+
            |
    +-------v-------+
@@ -22,13 +22,11 @@ Diese Komponente ist essenziell für einen reibungslosen Ablauf vor Ort. Sie ber
    +---------------+
 ```
 
-- **Stable Table Mapping**: Verhindert, dass laufende Spiele "springen" (z.B. von Tisch 2 auf Tisch 1), nur weil ein vorheriges Spiel beendet wurde.
-- **Match-Key**: Eindeutige Identifizierung von Paarungen, um den Zustand auch bei Snapshots konsistent zu halten.
+## Neue Visualisierungs-Logik
 
-## KO-Phasen Utilities
-
-- **Bracket-Positionierung**: Berechnet die grafischen Pfade im KO-Baum.
-- **Cups-State**: Normalisiert die Darstellung der 6 bzw. 10 Cups pro Team (True/False für getroffene Becher).
+- **Proportional Scaling**: Die visuelle Darstellung der Tische (3D) folgt nun strengen mathematischen Verhältnissen (Breite zu Höhe, Bechergröße zu Breite).
+- **Match-Key Identität**: Gewährleistet, dass Animationen auch bei Store-Updates (Merge) am korrekten Tisch abgespielt werden.
+- **Cup-State Normalisierung**: Berechnet Becher-Arrays (6/10) basierend auf Hit-Counts und Overtime-Status.
 
 ---
-*Status: 15. April 2026*
+*Status: 15. April 2026 - Scalable Design Logic Integrated*

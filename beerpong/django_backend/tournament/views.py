@@ -10,8 +10,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
-from .models import Tournament, Team, Match, Player, CupHit, Table, Tiebreak
-from .permissions import IsOrga, IsOrgaOrLiveview
+from .models import Tournament, Team, Match, Player, CupHit, Table, Tiebreak, MatchAssignment, AdminAction, User
+from .permissions import IsOrga, IsOrgaOrLiveview, IsRoot
 from .serializers import TournamentSerializer, CustomTokenObtainPairSerializer
 from .services import (
     compute_structure,
@@ -41,6 +41,34 @@ def broadcast(tournament_id: int, event: str, data: dict):
         f'tournament_{tournament_id}',
         {'type': 'tournament.update', 'event': event, 'data': data},
     )
+
+
+def broadcast_personal(user_id: int, data):
+    """Push a message to the personal channel of a specific user."""
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'user_{user_id}',
+        {'type': 'assignment.update', 'data': data},
+    )
+
+
+def _serialize_assignment(assignment):
+    if not assignment or not assignment.match:
+        return None
+    m = assignment.match
+    return {
+        'assignment_id': assignment.id,
+        'match_id': m.id,
+        'phase': m.phase,
+        'group_name': m.group_name,
+        'team1': m.team1.name if m.team1 else None,
+        'team2': m.team2.name if m.team2 else None,
+        'table_no': m.table.name if m.table else None,
+        'status': m.status,
+        'ko_round': m.ko_round,
+        'ko_bracket_type': m.ko_bracket_type,
+        'ko_match_index': m.ko_match_index,
+    }
 
 
 # ── Tournament ViewSet ───────────────────────────────────────────────────────
@@ -288,7 +316,7 @@ class TournamentViewSet(ViewSet):
         match_id = result.get('id')
         if match_id:
             match = Match.objects.filter(id=match_id).first()
-            _apply_match_event(t, match, body)
+            _apply_match_event(t, match, body, user=request.user)
 
         standings = compute_standings(t)
         full_state = get_full_state(t)
@@ -711,6 +739,94 @@ class TournamentViewSet(ViewSet):
         broadcast(t.id, 'ko_updated', full_state)
         return Response(result)
 
+    # ── Referee assignment ────────────────────────────────────────────────────
+
+    @action(detail=True, methods=['get'], url_path='referees', permission_classes=[IsOrga])
+    def list_referees(self, request, pk=None):
+        """Return all orga users that are NOT root — available as referees."""
+        t = self._get_or_404(pk)
+        referees = User.objects.filter(is_orga=True, is_root=False, is_staff=False).values(
+            'id', 'username'
+        )
+        # Annotate with current active assignment for this tournament
+        assignments = {
+            a.referee_id: a
+            for a in MatchAssignment.objects.filter(tournament=t, active=True)
+                                            .select_related('match__team1', 'match__team2', 'match__table')
+        }
+        result = []
+        for r in referees:
+            a = assignments.get(r['id'])
+            result.append({
+                'id': r['id'],
+                'username': r['username'],
+                'assignment': _serialize_assignment(a) if a else None,
+            })
+        return Response(result)
+
+    @action(detail=True, methods=['get'], url_path='my-assignment', permission_classes=[IsOrga])
+    def my_assignment(self, request, pk=None):
+        """Referee polls their own current assignment."""
+        t = self._get_or_404(pk)
+        a = MatchAssignment.objects.filter(
+            tournament=t, referee=request.user, active=True
+        ).select_related('match__team1', 'match__team2', 'match__table').first()
+        return Response({'assignment': _serialize_assignment(a)})
+
+    @action(detail=True, methods=['post'], url_path='assign-referee', permission_classes=[IsRoot])
+    def assign_referee(self, request, pk=None):
+        """
+        Root assigns or unassigns a referee to a match.
+        Body: { referee_id, match_id }   (match_id=null → unassign)
+        """
+        t = self._get_or_404(pk)
+        referee_id = request.data.get('referee_id')
+        match_id   = request.data.get('match_id')
+
+        try:
+            referee = User.objects.get(id=referee_id, is_orga=True)
+        except User.DoesNotExist:
+            return Response({'error': 'Referee not found'}, status=404)
+
+        match = None
+        if match_id:
+            try:
+                match = Match.objects.get(id=match_id, tournament=t)
+            except Match.DoesNotExist:
+                return Response({'error': 'Match not found'}, status=404)
+
+        # Deactivate all previous assignments for this referee in this tournament
+        MatchAssignment.objects.filter(tournament=t, referee=referee, active=True).update(active=False)
+
+        assignment = None
+        if match:
+            assignment = MatchAssignment.objects.create(
+                tournament=t,
+                referee=referee,
+                assigned_by=request.user,
+                match=match,
+                active=True,
+            )
+
+        # Log the action
+        AdminAction.objects.create(
+            tournament=t,
+            match=match,
+            user=request.user,
+            action_type='assign_referee',
+            payload={
+                'referee_id': referee.id,
+                'referee_username': referee.username,
+                'match_id': match.id if match else None,
+            },
+        )
+
+        # Push assignment update to referee's personal channel
+        data = _serialize_assignment(assignment) if assignment else None
+        broadcast_personal(referee.id, data)
+
+        return Response({'ok': True, 'assignment': data})
+
     # ── Mobile access ─────────────────────────────────────────────────────────
 
     @action(detail=True, methods=['get'], url_path='mobile-state', permission_classes=[])
@@ -922,11 +1038,32 @@ def _normalize_credit_allocations(raw_allocations):
     return allocations
 
 
-def _apply_match_event(tournament, match, body: dict):
+def _log_action(tournament, match, user, action_type: str, payload: dict):
+    """Write a server-side AdminAction log entry (best-effort, never raises)."""
+    try:
+        AdminAction.objects.create(
+            tournament=tournament,
+            match=match,
+            user=user,
+            action_type=action_type,
+            payload=payload,
+        )
+    except Exception:
+        pass
+
+
+def _apply_match_event(tournament, match, body: dict, user=None):
     event_data = body.get('event_data') or {}
     action_type = str(event_data.get('action_type') or '').strip()
     if not action_type or not match:
         return
+
+    # Log every action server-side
+    if user and action_type:
+        _log_action(tournament, match, user, action_type, {
+            'event_data': event_data,
+            'match_id': match.id,
+        })
 
     shooter_name = (body.get('shooter') or event_data.get('player_name') or '').strip()
     shooter_team_name = (body.get('shooter_team') or event_data.get('team_name') or '').strip()

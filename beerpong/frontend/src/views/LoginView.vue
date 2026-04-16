@@ -55,7 +55,9 @@ async function handleLogin() {
   loading.value = true
   try {
     await auth.login(username.value, password.value)
-    router.push(auth.isOrga ? '/admin' : '/live')
+    if (auth.isRoot)       router.push('/admin')
+    else if (auth.isOrga)  router.push('/referee')
+    else                   router.push('/live')
   } catch {
     error.value = 'Ungültige Anmeldedaten.'
   } finally {

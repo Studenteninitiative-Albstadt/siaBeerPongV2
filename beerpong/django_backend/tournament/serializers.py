@@ -12,6 +12,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['username'] = user.username
         token['is_orga'] = user.is_orga or user.is_staff
         token['is_liveview'] = user.is_liveview
+        token['is_root'] = user.is_root or user.is_staff
         return token
 
     def validate(self, attrs):
@@ -19,6 +20,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['username'] = self.user.username
         data['is_orga'] = self.user.is_orga or self.user.is_staff
         data['is_liveview'] = self.user.is_liveview
+        data['is_root'] = self.user.is_root or self.user.is_staff
         return data
 
 

@@ -6,6 +6,7 @@ from django.contrib.auth.models import AbstractUser
 class User(AbstractUser):
     is_orga = models.BooleanField(default=False)
     is_liveview = models.BooleanField(default=False)
+    is_root = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = 'Benutzer'
@@ -146,3 +147,45 @@ class CupHit(models.Model):
 
     def __str__(self):
         return f'{self.player.name} → {self.match}'
+
+
+class MatchAssignment(models.Model):
+    """Assigns a referee (is_orga user) to a specific match."""
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='assignments')
+    referee = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='assignments'
+    )
+    assigned_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='given_assignments'
+    )
+    match = models.ForeignKey(
+        Match, on_delete=models.SET_NULL, null=True, blank=True, related_name='assignment'
+    )
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.referee.username} → {self.match} (active={self.active})'
+
+
+class AdminAction(models.Model):
+    """Server-side log of every admin/referee action."""
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='admin_actions')
+    match = models.ForeignKey(
+        Match, on_delete=models.SET_NULL, null=True, blank=True, related_name='admin_actions'
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='admin_actions'
+    )
+    action_type = models.CharField(max_length=50)  # cup_hit, undo, rerack, match_finish, assign_referee, …
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user} · {self.action_type} @ {self.created_at:%H:%M:%S}'

@@ -1,42 +1,30 @@
 # Vue Komponenten-Bibliothek
 
-Die Komponenten sind modular aufgebaut und werden je nach Turnierphase in den Views kombiniert.
+Modulare Bausteine für den Turnier-Workflow.
 
-## Kategorisierung der Komponenten
+## Kern-Komponenten
 
-### 1. Turnier-Management
-- `TournamentWizard.vue`: Geführtes Setup für neue Turniere (Teams, Modi, Gruppen).
-- `TournamentBracketTree.vue`: Visualisierung des gesamten Turnier-Verlaufs.
-- `MatchTableControls.vue`: Steuerung einzelner Spiele (Score, Undo, Re-Rack).
+### 1. Visualisierung & 3D
+- **`LiveTable3D.vue`**: Master-Komponente für die Tisch-Darstellung. Nutzt nun **proportionales Scaling** (calc-based), um Becherpositionen über alle Auflösungen hinweg stabil zu halten.
+- **`ConfettiOverlay.vue`**: Visuelles Feedback für Turniersiege.
 
-### 2. Gruppenphase (`GroupsView/`)
-- `GroupsView.vue`: Container für die Gruppen-Ansicht.
-- `GroupTable.vue`: Tabellenberechnung & Standings pro Gruppe.
-- `TiebreakControls.vue`: Manuelle Steuerung bei Punkte-Gleichstand.
+### 2. Turnier-Struktur
+- **`KnockoutResultsTree.vue`**: Render-Engine für das KO-Bracket.
+- **`KnockoutPreviewTree.vue`**: Live-Vorschau der KO-Paarungen während der Gruppenphase.
+- **`TournamentWizard.vue`**: Multi-Step Form für die Turnieranlage.
 
-### 3. Knockout (KO) Phase
-- `KnockoutBracket.vue`: Dynamische Generierung des Turnierbaums.
-- `KnockoutView.vue`: Admin-Oberfläche für die KO-Runden.
-- `LiveViewKO.vue`: Beamer-optimierte KO-Darstellung.
+### 3. Steuerung
+- **`MatchTableControls.vue`**: Zentrale Komponente für die Ergebniseingabe (Cups, Undo, Re-Rack).
+- **`TiebreakControls.vue`**: Manuelle Entscheidungshilfe bei Punktegleichstand.
 
-### 4. Sonstiges & UI
-- `HeaderBar.vue`: Navigation & Status-Anzeige.
-- `InfoPanel.vue`: Seitenleiste für Turnier-Statistiken.
-- `ConfettiOverlay.vue`: Belohnungs-Effekt bei Turniersieg.
-
-## Komponenten-Workflow (Beispiel: Gruppenspiel)
+## Architektur-Muster
 
 ```text
-[ AdminView ]
-      |
-      +---< [ GroupsView ]
-                  |
-                  +---< [ GroupTable ] (Anzeige Standings)
-                  |
-                  +---< [ MatchTableControls ] (Eingabe Score)
-                              |
-                              +---( API Call: /group-match )
+[ View ] --> [ Container Component ] --> [ Presentational Component (3D/SVG) ]
+   |                |                             |
+   v                v                             v
+(Layout)       (Logic/API)                   (Pure Visuals)
 ```
 
 ---
-*Status: 15. April 2026*
+*Status: 15. April 2026 - Component Scaling Updated*

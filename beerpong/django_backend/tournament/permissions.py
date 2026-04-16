@@ -19,3 +19,13 @@ class IsOrgaOrLiveview(BasePermission):
             and request.user.is_authenticated
             and (request.user.is_orga or request.user.is_liveview or request.user.is_staff)
         )
+
+
+class IsRoot(BasePermission):
+    """Allows access only to root admins (or Django staff)."""
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_root or request.user.is_staff)
+        )

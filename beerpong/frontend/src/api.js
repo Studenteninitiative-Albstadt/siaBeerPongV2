@@ -80,6 +80,9 @@ export const api = {
     loadKoBracket:  (id)      => get(`/tournaments/${id}/load-ko-bracket`),
     koMatch:        (id, d)   => post(`/tournaments/${id}/ko-match`, d),
     mobileState:    (id, tok) => get(`/tournaments/${id}/mobile-state?token=${tok}`),
+    referees:       (id)      => get(`/tournaments/${id}/referees`),
+    myAssignment:   (id)      => get(`/tournaments/${id}/my-assignment`),
+    assignReferee:  (id, d)   => post(`/tournaments/${id}/assign-referee`, d),
   },
 }
 
