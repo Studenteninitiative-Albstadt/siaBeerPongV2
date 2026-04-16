@@ -28,8 +28,8 @@
 
     <!-- No active tournament -->
     <div v-if="!activeTournament" class="flex-grow-1 p-4 p-lg-5 liveview-landing">
-      <div class="container-fluid h-100 d-flex flex-column">
-        <section class="liveview-hero card border-secondary overflow-hidden mb-4">
+      <div class="container-fluid liveview-landing-shell">
+        <section class="liveview-hero card border-secondary overflow-hidden">
           <div class="card-body p-4 p-lg-5">
             <div class="text-uppercase small liveview-kicker mb-2">Willkommen</div>
             <h1 class="display-3 fw-bold text-white mb-3">Willkommen zum SIA Bier Pong Turnier</h1>
@@ -40,14 +40,14 @@
           </div>
         </section>
 
-        <div class="row g-4">
-          <div class="col-xl-4 col-lg-5">
-            <div class="card bg-black border-secondary h-100 shadow-lg">
+        <div class="liveview-landing-grid">
+          <div class="liveview-landing-col">
+            <div class="card bg-black border-secondary h-100 shadow-lg liveview-card">
               <div class="card-header border-secondary liveview-card-header">
                 <strong>TL;DR</strong>
               </div>
-              <div class="card-body">
-                <div class="d-flex flex-column gap-3">
+              <div class="card-body liveview-card-body">
+                <div class="liveview-rules-grid">
                   <div v-for="rule in liveviewRules" :key="rule.title" class="liveview-rule">
                     <div class="fw-semibold text-white mb-1">{{ rule.title }}</div>
                     <div v-if="rule.text" class="small text-secondary">{{ rule.text }}</div>
@@ -57,13 +57,13 @@
             </div>
           </div>
 
-          <div class="col-xl-8 col-lg-7">
-            <div class="card bg-black border-secondary h-100 shadow-lg">
+          <div class="liveview-landing-col">
+            <div class="card bg-black border-secondary h-100 shadow-lg liveview-card liveview-card--events">
               <div class="card-header border-secondary liveview-card-header">
                 <strong>Upcoming Events</strong>
               </div>
-              <div class="card-body">
-                <div class="d-flex flex-column gap-3">
+              <div class="card-body liveview-card-body">
+                <div class="liveview-events-grid">
                   <div v-for="event in liveviewEvents" :key="event.when + event.title" class="liveview-event">
                     <div class="d-flex align-items-start gap-3">
                       <div class="liveview-event-time">{{ event.when }}</div>
@@ -80,7 +80,7 @@
           </div>
         </div>
 
-        <div v-if="showTournamentPicker" class="liveview-launcher-panel mt-4">
+        <div v-if="showTournamentPicker" class="liveview-launcher-panel">
           <div class="card bg-black border-secondary shadow-lg overflow-hidden">
             <div class="card-header border-secondary liveview-card-header d-flex justify-content-between align-items-center">
               <strong>Turnierauswahl</strong>
@@ -100,7 +100,7 @@
           </div>
         </div>
 
-        <div class="border-top border-secondary py-2 px-3 text-center liveview-landing-footer mt-4 mt-lg-auto">
+        <div class="border-top border-secondary py-2 px-3 text-center liveview-landing-footer">
           <button class="btn btn-outline-secondary btn-sm" @click="showTournamentPicker = !showTournamentPicker">
             {{ showTournamentPicker ? 'Auswahl schließen' : 'Turnier auswählen' }}
           </button>
@@ -563,6 +563,8 @@ watch(groupEntries, () => {
 <style scoped>
 .liveview-root {
   min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* Locked viewport when a tournament is active */
@@ -756,9 +758,22 @@ watch(groupEntries, () => {
 }
 
 .liveview-landing {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(12px, 1.6vh, 22px) clamp(14px, 1.6vw, 28px) !important;
   background:
     radial-gradient(circle at 10% 15%, rgba(255, 185, 65, 0.12), transparent 24%),
     radial-gradient(circle at 85% 18%, rgba(88, 166, 255, 0.12), transparent 22%);
+}
+
+.liveview-landing-shell {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: clamp(10px, 1.4vh, 18px);
+  overflow: hidden;
 }
 
 .liveview-hero {
@@ -766,13 +781,50 @@ watch(groupEntries, () => {
     linear-gradient(135deg, rgba(8, 8, 8, 0.96) 0%, rgba(16, 28, 42, 0.96) 58%, rgba(41, 67, 54, 0.94) 100%);
 }
 
+.liveview-hero :deep(.card-body) {
+  padding: clamp(1rem, 2vh, 1.6rem) clamp(1rem, 1.8vw, 1.8rem) !important;
+}
+
 .liveview-kicker {
   letter-spacing: 0.18em;
   color: rgba(255, 214, 102, 0.86);
+  font-size: clamp(0.58rem, 0.78vw, 0.72rem);
 }
 
 .liveview-hero-copy {
   max-width: 48rem;
+  font-size: clamp(0.88rem, 1.1vw, 1.15rem);
+  line-height: 1.3;
+}
+
+.liveview-landing :deep(.display-3) {
+  font-size: clamp(1.8rem, 3.8vw, 3.2rem);
+  line-height: 1.02;
+}
+
+.liveview-landing-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.28fr);
+  gap: clamp(10px, 1vw, 18px);
+}
+
+.liveview-landing-col {
+  min-width: 0;
+  min-height: 0;
+}
+
+.liveview-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.liveview-card-body {
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(0.7rem, 1vh, 1rem) clamp(0.8rem, 1vw, 1.05rem) !important;
 }
 
 .liveview-card-header {
@@ -780,23 +832,47 @@ watch(groupEntries, () => {
   color: #f8f9fa;
   border-bottom-color: rgba(255, 255, 255, 0.18) !important;
   box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  padding: clamp(0.55rem, 0.8vh, 0.8rem) clamp(0.85rem, 1vw, 1rem) !important;
+}
+
+.liveview-rules-grid {
+  display: grid;
+  gap: clamp(0.35rem, 0.65vh, 0.7rem);
+}
+
+.liveview-events-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(0.45rem, 0.75vh, 0.8rem) clamp(0.55rem, 0.85vw, 0.9rem);
 }
 
 .liveview-rule,
 .liveview-event {
-  padding: 0.85rem 0.95rem;
-  border-radius: 14px;
+  padding: clamp(0.5rem, 0.75vh, 0.78rem) clamp(0.55rem, 0.85vw, 0.82rem);
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.liveview-rule .fw-semibold,
+.liveview-event .fw-semibold {
+  font-size: clamp(0.74rem, 0.92vw, 0.92rem);
+  line-height: 1.18;
+}
+
+.liveview-rule .small,
+.liveview-event .small {
+  font-size: clamp(0.64rem, 0.78vw, 0.75rem) !important;
+  line-height: 1.2;
+}
+
 .liveview-event-time {
-  min-width: 120px;
-  padding: 0.3rem 0.55rem;
+  min-width: clamp(94px, 7.5vw, 118px);
+  padding: 0.26rem 0.45rem;
   border-radius: 12px;
   background: linear-gradient(135deg, #ffd166 0%, #f4a261 100%);
   color: #201607;
-  font-size: 0.78rem;
+  font-size: clamp(0.6rem, 0.72vw, 0.74rem);
   font-weight: 700;
   text-align: center;
 }
@@ -812,10 +888,18 @@ watch(groupEntries, () => {
 
 .liveview-launcher-panel {
   width: min(860px, 100%);
+  max-height: min(28vh, 260px);
+  overflow: hidden;
 }
 
 .liveview-landing-footer {
   flex: 0 0 auto;
+  margin-top: auto;
+}
+
+.liveview-tournament-list {
+  max-height: min(22vh, 190px);
+  overflow: auto;
 }
 
 .liveview-tournament-list .list-group-item {
@@ -949,6 +1033,38 @@ watch(groupEntries, () => {
   height: 10px;
   padding: 0;
   border-radius: 50%;
+}
+
+@media (max-height: 860px) {
+  .liveview-landing {
+    padding: 10px 14px !important;
+  }
+
+  .liveview-landing-shell {
+    gap: 10px;
+  }
+
+  .liveview-hero :deep(.card-body) {
+    padding: 0.9rem 1rem !important;
+  }
+
+  .liveview-rules-grid,
+  .liveview-events-grid {
+    gap: 0.4rem 0.5rem;
+  }
+
+  .liveview-rule,
+  .liveview-event {
+    padding: 0.45rem 0.55rem;
+  }
+
+  .liveview-launcher-panel {
+    max-height: min(30vh, 220px);
+  }
+
+  .liveview-tournament-list {
+    max-height: min(18vh, 150px);
+  }
 }
 
 @media (max-height: 800px) {
