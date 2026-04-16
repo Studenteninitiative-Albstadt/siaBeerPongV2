@@ -10,12 +10,12 @@
       >
         <img
           src="/weiß.png"
-          alt="Turnierhalle Logo"
+          alt="SIA Logo"
           class="logo-img"
         />
         <div class="d-flex flex-column text-start">
-          <span class="fw-bold">Turnierhalle</span>
-          <small class="text-secondary">Beer Pong</small>
+          <span class="fw-bold">SIA</span>
+          <small class="text-secondary">Bier Pong</small>
         </div>
       </button>
 

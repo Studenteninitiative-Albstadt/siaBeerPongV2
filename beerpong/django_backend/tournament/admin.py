@@ -6,7 +6,7 @@ from .models import User, Tournament, Team, Match, Player, Table, Tiebreak
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     fieldsets = BaseUserAdmin.fieldsets + (
-        ('Beer Pong Rollen', {'fields': ('is_orga', 'is_liveview')}),
+        ('Bier Pong Rollen', {'fields': ('is_orga', 'is_liveview')}),
     )
     list_display = ['username', 'email', 'is_orga', 'is_liveview', 'is_staff']
 

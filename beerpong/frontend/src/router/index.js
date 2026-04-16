@@ -39,4 +39,8 @@ router.beforeEach((to) => {
   return true
 })
 
+router.afterEach(() => {
+  document.title = 'SIA Bier Pong'
+})
+
 export default router

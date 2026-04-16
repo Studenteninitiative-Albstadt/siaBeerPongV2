@@ -1,31 +1,37 @@
-# SIA BeerPong V2 - Project Root
+# SIA BeerPong V2 - Tournament Management System
 
-Dieses Repository enthält das BeerPong Turniermanagement-System der SIA. Das Projekt zeichnet sich durch eine hybride Architektur aus Django (Backend) und Vue 3 (Frontend) aus, mit einem starken Fokus auf Echtzeit-Visualisierung.
+Das offizielle Turniermanagement-System der SIA. Diese Applikation bietet eine hochverfügbare, echtzeitfähige Plattform zur Organisation von Beer-Pong-Turnieren, optimiert für den Einsatz auf Beamern (LiveView) und mobilen Endgeräten.
+
+## System-Architektur
+
+Das System basiert auf einem modernen, entkoppelten Stack:
+
+```text
+[ Frontend ] <---( WebSockets / REST )---> [ Backend ] <---> [ Redis ]
+(Vue 3 SPA)                                (Django DRF)      (Real-time)
+```
 
 ## Repository-Struktur
 
-```text
-.
-├── beerpong/               # Haupt-Anwendungskontext
-│   ├── django_backend/     # AKTIV: Django REST Framework + Channels
-│   ├── frontend/           # AKTIV: Vue 3 + Vite (Modern 3D LiveView)
-│   ├── backend/            # LEGACY: Altes Flask Backend (Referenz)
-│   └── docker-compose.yml  # Orchestrierung
-└── .gitignore              # Ausschlussregeln (Builds/DBs)
-```
+| Verzeichnis | Inhalt |
+|---|---|
+| `beerpong/` | Aktive Applikation & Docker-Orchestrierung. |
+| `beerpong/django_backend/` | Kern-API, Turnierlogik & WebSocket-Server. |
+| `beerpong/frontend/` | Responsive UI für Admin, LiveView und Mobile. |
 
-## Aktueller technischer Fokus
+## Deployment (Production)
 
-- **Echtzeit-Synchronisation**: Nahtloser Datenfluss zwischen Admin-Konsole und Beamer-Ansicht via WebSockets/Redis.
-- **Responsive 3D-Visualisierung**: Dynamisch skalierende Turniertische, die sich proportional an jede Fenstergröße (Beamer/Vollbild) anpassen.
-- **Rollenbasiertes UI**: Spezialisierte Ansichten für Organisation (Admin), Zuschauer (Live) und Spieler (Mobile).
-
-## Schnellstart
+Die gesamte Infrastruktur ist für den Betrieb in Docker-Containern optimiert.
 
 ```bash
 cd beerpong
-docker-compose up --build
+docker-compose up -d --build
 ```
 
+**Services:**
+- **Frontend**: Port 5173 (Vite / Production Build)
+- **Backend**: Port 8000 (Daphne ASGI Server)
+- **Redis**: Interner Message Broker für Echtzeit-Updates
+
 ---
-*Status: 15. April 2026 - Major UI & Documentation Update*
+*Version: 2.0.0 - Production Ready*

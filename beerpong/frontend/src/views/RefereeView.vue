@@ -4,7 +4,10 @@
 
     <!-- Header -->
     <div class="bg-black border-bottom border-secondary px-4 py-3 d-flex justify-content-between align-items-center">
-      <span class="fw-bold">🍺 BeerPong · Schiedsrichter</span>
+      <div class="d-flex align-items-center gap-3">
+        <img src="/weiß.png" alt="SIA Logo" class="referee-logo" />
+        <span class="fw-bold">SIA Bier Pong · Schiedsrichter</span>
+      </div>
       <div class="d-flex align-items-center gap-3">
         <span :class="wsConnected ? 'text-success' : 'text-secondary'" class="small">
           {{ wsConnected ? '● Verbunden' : '○ Getrennt' }}
@@ -670,5 +673,11 @@ function handleLogout() { _disconnect(); auth.logout(); router.push('/login') }
 @keyframes pulse {
   0%, 100% { transform: scale(1); opacity: 0.8; }
   50%       { transform: scale(1.15); opacity: 0.4; }
+}
+
+.referee-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
 }
 </style>

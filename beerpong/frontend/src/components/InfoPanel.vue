@@ -3,10 +3,10 @@
     <!-- Titel mittig -->
     <div class="text-center mb-4">
       <h1 class="display-5 fw-bold mb-2">
-        Willkommen zum SIA Beer Pong Turnier
+        Willkommen zum SIA Bier Pong Turnier
       </h1>
       <p class="lead text-secondary mb-0">
-        Wintersemester 2025/2026
+        Sommersemester 2026
       </p>
     </div>
 

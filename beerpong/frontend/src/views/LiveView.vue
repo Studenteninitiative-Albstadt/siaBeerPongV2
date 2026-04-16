@@ -8,8 +8,8 @@
       <div class="d-flex align-items-center gap-3 flex-shrink-0">
         <img src="/weiß.png" alt="SIA Logo" class="liveview-logo" />
         <div>
-          <div class="fw-bold text-white">BeerPong LiveView</div>
-          <div class="liveview-brand-subtitle">SIA Beer Pong Turnier</div>
+          <div class="fw-bold text-white">SIA Bier Pong LiveView</div>
+          <div class="liveview-brand-subtitle">SIA Bier Pong Turnier</div>
         </div>
       </div>
       <div v-if="activeTournament" class="liveview-active-title">
@@ -28,34 +28,15 @@
 
     <!-- No active tournament -->
     <div v-if="!activeTournament" class="flex-grow-1 p-4 p-lg-5 liveview-landing">
-      <div class="container-fluid">
+      <div class="container-fluid h-100 d-flex flex-column">
         <section class="liveview-hero card border-secondary overflow-hidden mb-4">
           <div class="card-body p-4 p-lg-5">
-            <div class="row align-items-center g-4">
-              <div class="col-lg-8">
-                <div class="text-uppercase small liveview-kicker mb-2">Willkommen</div>
-                <h1 class="display-3 fw-bold text-white mb-3">Willkommen zum SIA Beer Pong Turnier</h1>
-                <p class="lead text-light-emphasis mb-4 liveview-hero-copy">Wintersemester 2025/2026</p>
-                <div class="d-flex flex-wrap gap-2">
-                  <span class="badge rounded-pill liveview-chip">Gruppenphase</span>
-                  <span class="badge rounded-pill liveview-chip">KO-System</span>
-                  <span class="badge rounded-pill liveview-chip">Play-In moeglich</span>
-                  <span class="badge rounded-pill liveview-chip">Bierkasten fuer Platz 1</span>
-                </div>
-              </div>
-              <div class="col-lg-4">
-                <div class="liveview-hero-side card bg-black border-secondary shadow-lg">
-                  <div class="card-body">
-                    <div class="small text-secondary mb-2">Heute auf dem Beamer</div>
-                    <div class="fs-4 fw-bold text-white mb-3">Turnierhalle, TL;DR und Upcoming Events</div>
-                    <div class="small text-light-emphasis">
-                      Die Inhalte dieser Startansicht uebernehmen jetzt die bestehende Admin-Landing-Page,
-                      bleiben aber im beamerfreundlichen LiveView-Layout.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <div class="text-uppercase small liveview-kicker mb-2">Willkommen</div>
+            <h1 class="display-3 fw-bold text-white mb-3">Willkommen zum SIA Bier Pong Turnier</h1>
+            <p class="lead text-light-emphasis mb-3 liveview-hero-copy">Sommersemester 2026</p>
+            <p class="text-light-emphasis mb-0 liveview-hero-copy">
+              Behalte Live-Spiele, Tabellen, Turnierbaum und Mobile-Zugriff zentral auf dem Beamer im Blick.
+            </p>
           </div>
         </section>
 
@@ -76,19 +57,20 @@
             </div>
           </div>
 
-          <div class="col-xl-4 col-lg-7">
+          <div class="col-xl-8 col-lg-7">
             <div class="card bg-black border-secondary h-100 shadow-lg">
               <div class="card-header border-secondary bg-black">
                 <strong>Upcoming Events</strong>
               </div>
               <div class="card-body">
                 <div class="d-flex flex-column gap-3">
-                  <div v-for="event in liveviewEvents" :key="event.time + event.title" class="liveview-event">
+                  <div v-for="event in liveviewEvents" :key="event.when + event.title" class="liveview-event">
                     <div class="d-flex align-items-start gap-3">
-                      <div class="liveview-event-time">{{ event.time }}</div>
+                      <div class="liveview-event-time">{{ event.when }}</div>
                       <div>
                         <div class="fw-semibold text-white">{{ event.title }}</div>
-                        <div class="small text-secondary">{{ event.text }}</div>
+                        <div class="small text-secondary">{{ event.place }}</div>
+                        <div v-if="event.note" class="small liveview-event-note mt-2">{{ event.note }}</div>
                       </div>
                     </div>
                   </div>
@@ -96,25 +78,30 @@
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="col-xl-4">
-            <div class="card bg-black border-secondary h-100 shadow-lg">
-              <div class="card-header border-secondary bg-black d-flex justify-content-between align-items-center">
-                <strong>Turnier auswaehlen</strong>
-                <span class="small text-secondary">{{ store.tournaments.length }} verfuegbar</span>
+        <div class="liveview-launcher mt-4 mt-lg-auto">
+          <div class="card bg-black border-secondary shadow-lg overflow-hidden">
+            <div class="card-body d-flex justify-content-between align-items-center gap-3 flex-wrap">
+              <div>
+                <div class="fw-semibold text-white">Turnierauswahl</div>
+                <div class="small text-secondary">{{ store.tournaments.length }} Turniere verfügbar</div>
               </div>
-              <div class="card-body">
-                <div v-if="store.tournaments.length === 0" class="text-secondary small">
-                  Keine Turniere vorhanden.
-                </div>
-                <div v-else class="list-group liveview-tournament-list">
-                  <button v-for="t in store.tournaments" :key="t.id"
-                          class="list-group-item list-group-item-action bg-dark text-light border-secondary"
-                          @click="selectTournament(t)">
-                    <div class="fw-bold">{{ t.name }}</div>
-                    <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
-                  </button>
-                </div>
+              <button class="btn btn-primary" @click="showTournamentPicker = !showTournamentPicker">
+                {{ showTournamentPicker ? 'Auswahl schließen' : 'Turniere anzeigen' }}
+              </button>
+            </div>
+            <div v-if="showTournamentPicker" class="border-top border-secondary">
+              <div v-if="store.tournaments.length === 0" class="p-3 text-secondary small">
+                Keine Turniere vorhanden.
+              </div>
+              <div v-else class="list-group list-group-flush liveview-tournament-list">
+                <button v-for="t in store.tournaments" :key="t.id"
+                        class="list-group-item list-group-item-action bg-dark text-light border-secondary"
+                        @click="selectTournament(t)">
+                  <div class="fw-bold">{{ t.name }}</div>
+                  <small class="text-secondary">Phase: {{ t.current_phase ?? t.currentPhase ?? '–' }}</small>
+                </button>
               </div>
             </div>
           </div>
@@ -300,6 +287,7 @@ const qrCanvas = ref(null)
 const carouselIndex = ref(0)
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
 const viewportHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 1080)
+const showTournamentPicker = ref(false)
 let carouselTimer = null
 
 const liveviewRules = [
@@ -327,19 +315,40 @@ const liveviewRules = [
 
 const liveviewEvents = [
   {
-    time: '18.11.2025',
+    when: 'Di, 21/04/26 20:00',
     title: 'Just Open',
-    text: '20:00 · Plan B',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
   },
   {
-    time: '20.11.2025',
-    title: 'Blacklight',
-    text: '20:00 · Plan B',
+    when: 'Do, 23/04/26 20:00',
+    title: 'KaraokeV2',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
   },
   {
-    time: '21.11.2025',
+    when: 'Fr, 24/04/26 14:00',
     title: 'Mental Health Coffee Break',
-    text: '14:00 · Plan B',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
+  },
+  {
+    when: 'Di, 28/04/26 20:00',
+    title: 'Just Open',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
+  },
+  {
+    when: 'Do, 30/04/26 20:00',
+    title: 'WG-Party',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
+  },
+  {
+    when: 'Fr, 01/05/26 11:00',
+    title: 'RAVE IN DEN MAI',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
+  },
+  {
+    when: 'Fr, 01/05/26 11:00',
+    title: 'Mai-Wanderung',
+    place: 'Plan B, Poststraße 6, 72458 Albstadt',
+    note: 'WICHTIG: Anmeldung auf sia-planb.de',
   },
 ]
 
@@ -441,6 +450,12 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
 })
 
+watch(activeTournament, (tournament) => {
+  document.title = tournament?.name
+    ? `${tournament.name} | SIA Bier Pong`
+    : 'SIA Bier Pong'
+}, { immediate: true })
+
 watch(mobileUrl, async (url) => {
   if (!url || !qrCanvas.value) return
   await nextTick()
@@ -460,6 +475,7 @@ watch(qrCodeSize, async () => {
 async function selectTournament(t) {
   await store.load(t.id)
   store.connect(t.id)
+  showTournamentPicker.value = false
   carouselIndex.value = 0
   stopCarousel()
   startCarousel()
@@ -473,6 +489,7 @@ async function selectTournament(t) {
 function deselectTournament() {
   store.tournament = null
   store.disconnect()
+  showTournamentPicker.value = false
   stopCarousel()
 }
 
@@ -759,13 +776,6 @@ watch(groupEntries, () => {
   max-width: 48rem;
 }
 
-.liveview-chip {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  padding: 0.55rem 0.85rem;
-}
-
 .liveview-rule,
 .liveview-event {
   padding: 0.85rem 0.95rem;
@@ -775,14 +785,23 @@ watch(groupEntries, () => {
 }
 
 .liveview-event-time {
-  min-width: 64px;
+  min-width: 120px;
   padding: 0.3rem 0.55rem;
-  border-radius: 999px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #ffd166 0%, #f4a261 100%);
   color: #201607;
   font-size: 0.78rem;
   font-weight: 700;
   text-align: center;
+}
+
+.liveview-event-note {
+  color: #ffd166;
+  font-weight: 600;
+}
+
+.liveview-launcher {
+  width: min(860px, 100%);
 }
 
 .liveview-tournament-list .list-group-item {

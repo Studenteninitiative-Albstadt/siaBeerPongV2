@@ -3,8 +3,11 @@
        style="background:radial-gradient(circle at top,#1f1f1f 0%,#0d0d0d 55%,#000 100%)">
     <div class="card bg-black border-secondary text-light" style="width:360px">
       <div class="card-body p-4">
-        <h3 class="text-center mb-1">🍺 BeerPong</h3>
-        <p class="text-center text-secondary small mb-4">Tournament Manager</p>
+        <div class="text-center mb-4">
+          <img src="/weiß.png" alt="SIA Logo" class="login-logo mb-3" />
+          <h3 class="text-center mb-1">SIA Bier Pong</h3>
+          <p class="text-center text-secondary small mb-0">Turnierverwaltung</p>
+        </div>
 
         <form @submit.prevent="handleLogin">
           <div class="mb-3">
@@ -65,3 +68,11 @@ async function handleLogin() {
   }
 }
 </script>
+
+<style scoped>
+.login-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+</style>

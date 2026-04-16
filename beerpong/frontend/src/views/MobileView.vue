@@ -19,9 +19,15 @@
 
     <template v-else>
       <!-- Header -->
-      <div class="bg-black border-bottom border-secondary py-3 px-4 d-flex justify-content-between align-items-center">
-        <span class="fw-bold">🍺 {{ tournament?.name }}</span>
-        <span class="badge" :class="wsConnected ? 'bg-success' : 'bg-secondary'">
+      <div class="bg-black border-bottom border-secondary py-3 px-4 d-flex justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3">
+          <img src="/weiß.png" alt="SIA Logo" class="mobile-logo" />
+          <div class="mobile-brand">
+            <div class="fw-bold">SIA Bier Pong</div>
+            <div class="text-secondary small">{{ tournament?.name }}</div>
+          </div>
+        </div>
+        <span class="badge flex-shrink-0" :class="wsConnected ? 'bg-success' : 'bg-secondary'">
           {{ wsConnected ? '● Live' : '○ Offline' }}
         </span>
       </div>
@@ -475,6 +481,23 @@ onUnmounted(() => {
 
 .live-match-card {
   background: linear-gradient(180deg, rgba(17, 24, 39, 0.96) 0%, rgba(8, 8, 8, 0.98) 100%);
+}
+
+.mobile-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.mobile-brand {
+  min-width: 0;
+}
+
+.mobile-brand > div {
+  max-width: 52vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── KO tab: full width, horizontal scroll enabled ─────────────────────── */
