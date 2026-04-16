@@ -1,35 +1,16 @@
-# SIA BeerPong - Legacy Backend (Flask)
+# SIA BeerPong - Legacy Backend (Archiv)
 
-Dieser Ordner enthält den ursprünglichen Backend-Stack. Er dient aktuell nur noch als Referenz für die Portierung der Logik in das neue Django-Backend.
+Dieser Ordner enthält die veraltete Flask-Version (V1.0) des Systems. Er dient ausschließlich als technisches Archiv und Referenz für vergangene Turniere.
 
-## Stack & Architektur (V1)
+## Archiv-Status
 
-```text
-[ Client ] <---( Socket.IO )---> [ Flask Server ]
-                                       |
-                               +-------v-------+
-                               |  SQLAlchemy   |
-                               +-------+-------+
-                                       |
-                               [ tournament.db ] (SQLite)
-```
+- **Service**: Inaktiv (Wird nicht über `docker-compose` gestartet).
+- **Datenbank**: `tournament.db` (SQLite - Veraltetes Schema).
+- **Zweck**: Nur zur Nachverfolgung historischer Turnierdaten oder Logik-Vergleiche.
 
-- **Framework**: Flask mit `Flask-SocketIO`.
-- **Datenbank**: SQLite (`tournament.db`).
-- **Kommunikation**: Starker Fokus auf Event-basiertes Socket.IO (Echtzeit-Scores).
+## Aktive Alternative
 
-## Warum Legacy?
-
-1. **Skalierbarkeit**: Flask-SocketIO stieß bei parallelen Turnieren an Grenzen.
-2. **Typisierung/Struktur**: Fehlende Validierungsschichten (Serializers).
-3. **Zustandsmodell**: Die Logik war stark in `app.py` konzentriert (Monolith).
-
-## Migration-Status
-
-- [x] Turnier-Modelle (Portiert nach Django)
-- [x] Gruppengenerierung (Portiert nach `services.py`)
-- [x] WebSocket-Events (Ersetzt durch Django Channels)
-- [ ] Vollständige Abschaltung (Geplant nach Stabilisierung des Play-In-Flows)
+Alle produktiven Funktionen befinden sich im Ordner `django_backend/`.
 
 ---
-*Status: 15. April 2026*
+*Status: Legacy - Nicht für Produktion geeignet*

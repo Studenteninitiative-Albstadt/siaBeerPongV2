@@ -1,8 +1,10 @@
 # SIA BeerPong - App context
 
-Zentrales Verzeichnis für die Orchestrierung und den Turnier-Lifecycle.
+Dies ist das Herzstück des Turniermanagers. Hier wird die Orchestrierung der Produktiv-Services gesteuert.
 
-## Service-Infrastruktur
+## Produktiv-Stack (Orchestrierung)
+
+Das System nutzt `docker-compose.yml`, um eine hochverfügbare Umgebung zu gewährleisten.
 
 ```text
        [ Externer Zugriff ]
@@ -10,28 +12,28 @@ Zentrales Verzeichnis für die Orchestrierung und den Turnier-Lifecycle.
     +----------+----------+
     |                     |
 [ frontend ] <---> [ backend (django) ] <---> [ redis ]
-(Port 5173)        (Port 8000)                (WebSocket Layer)
+(Vue 3 SPA)        (REST API + WS)            (Real-time State)
 ```
 
-## Turnier-Lifecycle & UI-Fokus
+## Produktiver Turnier-Workflow
 
-Der Lifecycle wird durch spezialisierte Frontend-Komponenten visualisiert:
+Der Workflow ist automatisiert und synchronisiert alle Clients (Admin, Beamer, Mobile) in Echtzeit:
 
-1. **Setup**: Wizard-basierte Team-Erfassung.
-2. **Gruppenphase**: Live-Scoring mit stabilen Tischzuweisungen.
-3. **KO-Phase**: Dynamisches Bracket-Rendering und Beamer-optimierte 3D-Tischansicht.
+```text
+[ SETUP ] --> [ GRUPPENPHASE ] --> [ PLAY-IN ] --> [ KO-PHASE ]
+    |               |                  |               |
+    |               |                  |               +--> Finale & Siegerehrung
+    |               |                  +--> Tie-Break & Platzierungen
+    |               +--> Live-Tische & Standings
+    +--> Team-Management & Wizard
+```
 
-## UI-Design-Prinzipien
+## Verzeichnis-Inhalt
 
-- **Proportional Scaling**: Tische skalieren basierend auf Breite und Höhe, um Overlap zu vermeiden.
-- **Visual Feedback**: Ball-Animationen und Becher-Zustände werden in Echtzeit visualisiert.
-- **Compact Data**: Mobile Ansichten sind platzoptimiert (QR-Code Integration).
-
-## Betrieb
-
-- Lokale Entwicklung: [`docker-compose.yml`](./docker-compose.yml)
-- Produktiver Stack fuer `sia-bp.butzke.it`: [`docker-compose.prod.yml`](./docker-compose.prod.yml)
-- Server-Setup, Host-Nginx und To-dos: [`DEPLOYMENT.md`](./DEPLOYMENT.md)
+- `docker-compose.yml`: Definiert Container-Limits und Environments.
+- `django_backend/`: Produktives Backend (Django 5.x).
+- `frontend/`: Produktives Frontend (Vue 3 / Pinia).
+- `backend/`: Veraltetes Archiv (Legacy - Nur zu Dokumentationszwecken).
 
 ---
-*Status: 15. April 2026 - Layout & Scaling Refined*
+*Version: 2.0.0 - Production State*

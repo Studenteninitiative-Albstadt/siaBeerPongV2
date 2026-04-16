@@ -1,30 +1,30 @@
-# Frontend Views (Seiten)
+# Frontend Views (Produktions-Schnittstellen)
 
-Kombination von Komponenten zu spezialisierten Benutzer-Schnittstellen.
+Zusammenführung spezialisierter UI-Komponenten für maximale User Experience während des Turniers.
 
-## Übersicht der Haupt-Views
+## Ansichten-Portfolio
 
-| View | Rolle | Fokus |
+| View | Zweck | Zielgruppe |
 |---|---|---|
-| `AdminView.vue` | Orga | Phasen-Management, Live-Scoring. |
-| `LiveView.vue` | Beamer | Gruppen-Live-Status, 3/4 Split-Layout, QR-Code. |
-| `LiveViewKO.vue` | Beamer | KO-Live-Status (Full-Bracket + Live Tables). |
-| `MobileView.vue` | Spieler | Persönlicher Turnier-Status (Token-basiert). |
+| `AdminView.vue` | Vollständige Steuerung. | Turnierleitung |
+| `LiveView.vue` | Gruppenphasen-Übersicht. | Zuschauer (Beamer) |
+| `LiveViewKO.vue` | Finalrunden-Visualisierung. | Zuschauer (Beamer) |
+| `MobileView.vue` | Persönlicher Turnier-Status. | Teilnehmer (QR-Zugriff) |
 
-## Layout-Innovationen
+## Produktions-Design-Standards
 
-### 3/4 Split-Architektur
-Die Live-Ansichten (`LiveView` & `LiveViewKO`) nutzen nun ein dynamisches Höhen-Management:
-- **Oben (ca. 70%)**: Fokus auf Live-Spiele (3D Tische).
-- **Unten (ca. 30%)**: Kontext-Informationen (Gruppenstände, Brackets, QR-Code).
+### Dynamisches 3/4-Split-Layout
+Die Live-Ansichten nutzen eine intelligente Höhenaufteilung:
+- **Oben (Live-Action)**: Proportionale 3D-Tisch-Visualisierung (Auto-Scaling).
+- **Unten (Kontext)**: Statistische Daten (Standings/Brackets) und QR-Code-Gateway.
 
-### Phasen-Synchronisation
-Die `LiveView` schaltet automatisch zwischen Gruppen-Layout und KO-Layout (`LiveViewKO.vue`) um, sobald der Turnierstatus im Backend geändert wird.
+### Adaptive Visualisierung (3D)
+Die in `LiveView` & `LiveViewKO` verwendeten 3D-Tische sind über die Master-Variable `--tw` (Table Width) proportional skalierbar. Dies garantiert:
+- **Null-Overflow**: Tische ragen niemals in untere UI-Elemente.
+- **Präzision**: Becher-Positionen bleiben in allen Auflösungen identisch.
 
-### QR-Code Optimierung
-Der QR-Code Bereich wurde für Beamer-Entfernungen optimiert:
-- **Quadratisches Fix-Format**: Verhindert Verzerrungen.
-- **Ultra-Compact URL**: Minimierte Schriftgrößen und radikaler Umbruch für lange Tokens.
+### Mobile-Infrastruktur
+Jedes Turnier generiert einen eindeutigen `mobileAccessToken`, der in der `LiveView` quadratisch und verzerrungsfrei (aspect-ratio fix) als QR-Code dargestellt wird.
 
 ---
-*Status: 15. April 2026 - Split-Layout & KO-Views Documented*
+*Version: 2.0.0 - Design Finalized*

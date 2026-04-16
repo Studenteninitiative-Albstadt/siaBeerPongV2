@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import ViewSet
@@ -76,6 +77,8 @@ def _serialize_assignment(assignment):
 class TournamentViewSet(ViewSet):
 
     def get_permissions(self):
+        if self.action == 'mobile_state':
+            return [AllowAny()]
         read_actions = {'list', 'retrieve', 'load_all_data', 'group_standings',
                         'load_ko', 'load_playin', 'load_teams'}
         if self.action in read_actions:

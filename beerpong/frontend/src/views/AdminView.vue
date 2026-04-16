@@ -15,8 +15,6 @@
     </HeaderBar>
 
     <main class="container py-5">
-      <InfoPanel v-if="step === 0 && !showLoad" class="mb-4" />
-
       <!-- Tournament list -->
       <div v-if="showLoad" class="card bg-black border-secondary text-light mb-4">
         <div class="card-header bg-black border-secondary d-flex justify-content-between align-items-center">
@@ -166,7 +164,6 @@ import { api } from '../api.js'
 import { getAssignedActiveMatches, getKOActiveMatches } from '../utils/tableAssignments.js'
 
 import HeaderBar        from '../components/HeaderBar.vue'
-import InfoPanel        from '../components/InfoPanel.vue'
 import TournamentWizard from '../components/TournamentWizard.vue'
 import GroupsView       from '../components/GroupsView/GroupsView.vue'
 import KnockoutView     from '../components/KnockoutView.vue'
