@@ -10,6 +10,14 @@ function getToken() {
   return localStorage.getItem('access_token')
 }
 
+async function parseResponse(res) {
+  try {
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 async function tryRefresh() {
   const refresh = localStorage.getItem('refresh_token')
   if (!refresh) throw new Error('no refresh token')
@@ -45,7 +53,25 @@ async function request(path, options = {}) {
     }
   }
 
-  return res.json()
+  return parseResponse(res)
+}
+
+async function publicRequest(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers }
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    skipAuth: true,
+  })
+  const data = await parseResponse(res)
+  if (res.ok) {
+    return data
+  }
+  return {
+    ...(data && typeof data === 'object' ? data : {}),
+    error: true,
+    status: res.status,
+  }
 }
 
 const get  = (p)    => request(p)
@@ -55,7 +81,7 @@ const del  = (p)    => request(p, { method: 'DELETE' })
 export const api = {
   auth: {
     login: (username, password) =>
-      request('/auth/token', { method: 'POST', body: JSON.stringify({ username, password }) }),
+      publicRequest('/auth/token', { method: 'POST', body: JSON.stringify({ username, password }) }),
   },
 
   tournaments: {
@@ -79,7 +105,7 @@ export const api = {
     saveKoBracket:  (id, d)   => post(`/tournaments/${id}/save-ko-bracket`, d),
     loadKoBracket:  (id)      => get(`/tournaments/${id}/load-ko-bracket`),
     koMatch:        (id, d)   => post(`/tournaments/${id}/ko-match`, d),
-    mobileState:    (id, tok) => get(`/tournaments/${id}/mobile-state?token=${tok}`),
+    mobileState:    (id, tok) => publicRequest(`/tournaments/${id}/mobile-state?token=${encodeURIComponent(tok)}`),
     referees:       (id)      => get(`/tournaments/${id}/referees`),
     myAssignment:   (id)      => get(`/tournaments/${id}/my-assignment`),
     assignReferee:  (id, d)   => post(`/tournaments/${id}/assign-referee`, d),

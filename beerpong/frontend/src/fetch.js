@@ -6,12 +6,17 @@
 const _originalFetch = window.fetch.bind(window)
 
 window.fetch = function authedFetch(input, init = {}) {
+  const { skipAuth = false, ...rest } = init || {}
+  if (skipAuth) {
+    return _originalFetch(input, rest)
+  }
+
   const token = localStorage.getItem('access_token')
   if (token) {
-    init.headers = {
-      ...init.headers,
+    rest.headers = {
+      ...rest.headers,
       Authorization: `Bearer ${token}`,
     }
   }
-  return _originalFetch(input, init)
+  return _originalFetch(input, rest)
 }
