@@ -27,6 +27,10 @@ SECRET_KEY = os.environ.get(
 )
 DEBUG = env_bool('DJANGO_DEBUG', 'DEBUG', default=True)
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', 'ALLOWED_HOSTS', default=['*'])
+if '*' not in ALLOWED_HOSTS:
+    for internal_host in ('127.0.0.1', 'localhost', 'backend', 'nginx'):
+        if internal_host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(internal_host)
 
 INSTALLED_APPS = [
     'daphne',
