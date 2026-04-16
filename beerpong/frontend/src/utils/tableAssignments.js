@@ -1,5 +1,7 @@
 import { filterKoRoundsForActiveStage } from './koDisplay.js'
 
+export const DEFAULT_UPCOMING_MATCH_LIMIT = 10
+
 export function matchKey(match) {
   if (match?.id !== undefined && match?.id !== null) return `id:${match.id}`
   return `fallback:${match?.group_name || ''}:${match?.team1 || ''}:${match?.team2 || ''}:${match?.order_index ?? 0}`
@@ -132,6 +134,15 @@ export function getUpcomingMatches(matchesByGroup = {}, tableCount = 0, limit = 
     .slice(0, limit)
 }
 
+export function getUpcomingMatchesTotal(matchesByGroup = {}, tableCount = 0) {
+  const activeMatches = getAssignedActiveMatches(matchesByGroup, tableCount)
+  const activeKeys = new Set(activeMatches.map(match => matchKey(match)))
+
+  return flattenMatchesByGroup(matchesByGroup)
+    .filter(match => !match.winner && !activeKeys.has(matchKey(match)))
+    .length
+}
+
 // ── KO phase utilities ────────────────────────────────────────────────────────
 
 export function flattenKORounds(rounds = []) {
@@ -171,6 +182,15 @@ export function getKOUpcomingMatches(rounds = [], tableCount = 0, limit = 10, ac
   return flattenKORounds(stageRounds)
     .filter(match => !match.winner && match.team1 && match.team2 && !activeKeys.has(matchKey(match)))
     .slice(0, limit)
+}
+
+export function getKOUpcomingMatchesTotal(rounds = [], tableCount = 0, activeMainRoundIndex = null, activeStageKind = null) {
+  const stageRounds = filterKoRoundsForActiveStage(rounds, activeMainRoundIndex, activeStageKind)
+  const active = getKOActiveMatches(rounds, tableCount, activeMainRoundIndex, activeStageKind)
+  const activeKeys = new Set(active.map(match => matchKey(match)))
+  return flattenKORounds(stageRounds)
+    .filter(match => !match.winner && match.team1 && match.team2 && !activeKeys.has(matchKey(match)))
+    .length
 }
 
 export function buildStableKOAssignmentMap(rounds = [], tableCount = 0, activeMainRoundIndex = undefined, activeStageKind = undefined) {

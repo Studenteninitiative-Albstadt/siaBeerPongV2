@@ -156,7 +156,7 @@
             <div class="card bg-black border-secondary lv-queue-card">
               <div class="card-header bg-black border-secondary d-flex justify-content-between align-items-center">
                 <strong>Nächste Spiele</strong>
-                <span class="badge bg-secondary">{{ upcomingMatches.length }}</span>
+                <span class="badge bg-secondary">{{ upcomingMatches.length }}/{{ upcomingMatchesTotal }}</span>
               </div>
               <div class="card-body p-0 overflow-auto">
                 <div v-if="upcomingMatches.length" class="list-group list-group-flush">
@@ -275,7 +275,12 @@ import { useAuthStore } from '../stores/auth.js'
 import { useTournamentStore } from '../stores/tournament.js'
 import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
-import { getAssignedActiveMatches, getUpcomingMatches } from '../utils/tableAssignments.js'
+import {
+  DEFAULT_UPCOMING_MATCH_LIMIT,
+  getAssignedActiveMatches,
+  getUpcomingMatches,
+  getUpcomingMatchesTotal,
+} from '../utils/tableAssignments.js'
 import LiveViewKO from '../components/LiveViewKO.vue'
 import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 
@@ -394,7 +399,13 @@ const upcomingMatches = computed(() =>
   getUpcomingMatches(
     store.groupPhase?.matches || {},
     activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2,
-    6
+    DEFAULT_UPCOMING_MATCH_LIMIT
+  )
+)
+const upcomingMatchesTotal = computed(() =>
+  getUpcomingMatchesTotal(
+    store.groupPhase?.matches || {},
+    activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2,
   )
 )
 

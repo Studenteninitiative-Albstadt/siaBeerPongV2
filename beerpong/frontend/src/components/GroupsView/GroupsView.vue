@@ -242,7 +242,10 @@
 
       <!-- Warteschlange -->
       <div v-if="upcomingMatches.length > 0" class="card bg-dark border-secondary">
-        <div class="card-header bg-secondary text-light fw-bold">Als Nächstes (Warteschlange)</div>
+        <div class="card-header bg-secondary text-light fw-bold d-flex justify-content-between align-items-center">
+          <span>Als Nächstes (Warteschlange)</span>
+          <span class="badge bg-dark border border-light-subtle">{{ upcomingMatches.length }}/{{ upcomingMatchesTotal }}</span>
+        </div>
         <div class="list-group list-group-flush">
           <div v-for="m in upcomingMatches" :key="m.id" class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between">
             <span>{{ m.team1 }} <strong class="text-secondary mx-2">vs</strong> {{ m.team2 }}</span>
@@ -628,9 +631,11 @@ import MatchTableControls from '../MatchTableControls.vue'
 import GroupStandingsTable from '../GroupStandingsTable.vue'
 import { useTournamentStore } from '../../stores/tournament.js'
 import {
+  DEFAULT_UPCOMING_MATCH_LIMIT,
   buildStableTableAssignmentMap,
   getAssignedActiveMatches,
   getUpcomingMatches,
+  getUpcomingMatchesTotal,
   getTableNo,
   matchKey,
 } from '../../utils/tableAssignments.js'
@@ -763,7 +768,10 @@ const activeMatches = computed(() =>
 )
 
 const upcomingMatches = computed(() =>
-  getUpcomingMatches(groupMatches.value, activeTableCount.value, 5)
+  getUpcomingMatches(groupMatches.value, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT)
+)
+const upcomingMatchesTotal = computed(() =>
+  getUpcomingMatchesTotal(groupMatches.value, activeTableCount.value)
 )
 
 const activeTeamNames = computed(() => {

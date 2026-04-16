@@ -105,7 +105,10 @@
 
         <!-- Nächste Spiele -->
         <div v-else-if="currentTab === 'next'" class="mb-5">
-          <h5 class="mb-3 border-bottom border-secondary pb-2">Nächste Spiele</h5>
+          <div class="mb-3 border-bottom border-secondary pb-2 d-flex justify-content-between align-items-center gap-2">
+            <h5 class="mb-0">Nächste Spiele</h5>
+            <span class="badge bg-secondary">{{ upcomingMatches.length }}/{{ upcomingMatchesTotal }}</span>
+          </div>
           <div v-if="upcomingMatches.length">
             <div v-for="(m, idx) in upcomingMatches" :key="idx"
                  class="card border-secondary p-3 mb-2 next-match-card text-light">
@@ -166,7 +169,16 @@ import { api } from '../api.js'
 import { useTournamentStore } from '../stores/tournament.js'
 import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
-import { getAssignedActiveMatches, getUpcomingMatches, getKOActiveMatches, getKOUpcomingMatches, makeCupsStateFromCount } from '../utils/tableAssignments.js'
+import {
+  DEFAULT_UPCOMING_MATCH_LIMIT,
+  getAssignedActiveMatches,
+  getUpcomingMatches,
+  getUpcomingMatchesTotal,
+  getKOActiveMatches,
+  getKOUpcomingMatches,
+  getKOUpcomingMatchesTotal,
+  makeCupsStateFromCount,
+} from '../utils/tableAssignments.js'
 import KnockoutResultsTree from '../components/KnockoutResultsTree.vue'
 import KnockoutPreviewTree from '../components/KnockoutPreviewTree.vue'
 import { inferKoMatchCupsTarget, normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
@@ -367,11 +379,16 @@ const activeTeamNames = computed(() => {
 
 const upcomingMatches = computed(() =>
   isKnockoutPhase.value
-    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, 10, activeKoMainRoundIndex.value, activeKoStageKind.value).map(m => ({
+    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT, activeKoMainRoundIndex.value, activeKoStageKind.value).map(m => ({
         ...m,
         round: m.round_name || 'KO-Phase',
       }))
-    : getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, 10)
+    : getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT)
+)
+const upcomingMatchesTotal = computed(() =>
+  isKnockoutPhase.value
+    ? getKOUpcomingMatchesTotal(koRounds.value, activeTableCount.value, activeKoMainRoundIndex.value, activeKoStageKind.value)
+    : getUpcomingMatchesTotal(store.groupPhase?.matches ?? {}, activeTableCount.value)
 )
 
 const topPlayers = computed(() => {
