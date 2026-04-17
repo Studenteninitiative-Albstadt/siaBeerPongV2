@@ -241,15 +241,46 @@
       </div>
 
       <!-- Warteschlange -->
-      <div v-if="upcomingMatches.length > 0" class="card bg-dark border-secondary">
-        <div class="card-header bg-secondary text-light fw-bold d-flex justify-content-between align-items-center">
-          <span>Als Nächstes (Warteschlange)</span>
-          <span class="badge bg-dark border border-light-subtle">{{ upcomingMatches.length }}/{{ upcomingMatchesTotal }}</span>
+      <div v-if="queueMatches.length > 0" class="card bg-dark border-secondary group-queue-card">
+        <div class="card-header bg-secondary text-light fw-bold d-flex justify-content-between align-items-start gap-3">
+          <div>
+            <div>Als Nächstes (Warteschlange)</div>
+            <div class="small text-light-emphasis fw-normal mt-1">
+              Nur wartende Spiele sind per Drag & Drop umsortierbar.
+            </div>
+          </div>
+          <span class="badge bg-dark border border-light-subtle flex-shrink-0">{{ upcomingMatchesTotal }} ausstehend</span>
         </div>
-        <div class="list-group list-group-flush">
-          <div v-for="m in upcomingMatches" :key="m.id" class="list-group-item bg-dark text-light border-secondary d-flex justify-content-between">
-            <span>{{ m.team1 }} <strong class="text-secondary mx-2">vs</strong> {{ m.team2 }}</span>
-            <span class="badge bg-dark border border-secondary">{{ m.group_name }}</span>
+        <div
+          class="list-group list-group-flush group-queue-list"
+          @dragover.prevent="onQueueListDragOver"
+          @drop.prevent="onQueueListDrop"
+        >
+          <div
+            v-for="(m, idx) in queueMatches"
+            :key="matchKey(m)"
+            class="list-group-item bg-dark text-light border-secondary group-queue-item"
+            :class="{
+              'group-queue-item--dragging': draggedQueueMatchKey === matchKey(m),
+              'group-queue-item--drop-before': hoveredQueueMatchKey === matchKey(m) && hoveredQueuePosition === 'before',
+              'group-queue-item--drop-after': hoveredQueueMatchKey === matchKey(m) && hoveredQueuePosition === 'after',
+            }"
+            draggable="true"
+            @dragstart="onQueueDragStart(m, $event)"
+            @dragend="onQueueDragEnd"
+            @dragover.prevent="onQueueDragOver(m, $event)"
+            @drop.prevent="onQueueDrop(m, $event)"
+          >
+            <div class="d-flex align-items-center gap-3 w-100">
+              <div class="group-queue-handle" aria-hidden="true">⋮⋮</div>
+              <div class="flex-grow-1 group-queue-main">
+                <div class="fw-semibold text-truncate">
+                  {{ m.team1 }} <strong class="text-secondary mx-2">vs</strong> {{ m.team2 }}
+                </div>
+                <div class="small text-secondary">#{{ idx + 1 }} in der Warteschlange</div>
+              </div>
+              <span class="badge bg-dark border border-secondary flex-shrink-0">{{ m.group_name }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -631,7 +662,6 @@ import MatchTableControls from '../MatchTableControls.vue'
 import GroupStandingsTable from '../GroupStandingsTable.vue'
 import { useTournamentStore } from '../../stores/tournament.js'
 import {
-  DEFAULT_UPCOMING_MATCH_LIMIT,
   buildStableTableAssignmentMap,
   getAssignedActiveMatches,
   getUpcomingMatches,
@@ -685,6 +715,9 @@ const AUTOSAVE_MS = 400
 /** Schützenauswahl: { mode, groupName, matchIndex, teamKey } | null */
 const pendingShooter = ref(null)
 const selectedPlayer = ref(null)
+const draggedQueueMatchKey = ref(null)
+const hoveredQueueMatchKey = ref(null)
+const hoveredQueuePosition = ref(null)
 
 /** Abschluss-Logik: { match, groupName, matchIndex, step: 'NACHWURF' | 'ALL_HIT' | 'END_QUERY' } */
 const pendingConclusion = ref(null)
@@ -767,8 +800,8 @@ const activeMatches = computed(() =>
   getAssignedActiveMatches(groupMatches.value, activeTableCount.value)
 )
 
-const upcomingMatches = computed(() =>
-  getUpcomingMatches(groupMatches.value, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT)
+const queueMatches = computed(() =>
+  getUpcomingMatches(groupMatches.value, activeTableCount.value, Number.MAX_SAFE_INTEGER)
 )
 const upcomingMatchesTotal = computed(() =>
   getUpcomingMatchesTotal(groupMatches.value, activeTableCount.value)
@@ -961,26 +994,7 @@ async function reloadAll() {
 }
 
 async function saveGroupPhase() {
-  const payload = {
-    group_phase: {
-      groups: lastGroupsMeta.value.map(g => ({
-        name: g.name,
-        size: g.teams.length,
-        teams: g.teams
-      })),
-      matches: Object.fromEntries(
-        Object.entries(groupMatches.value).map(([g, ms]) => [
-          g,
-          ms.map(m => ({
-            ...m,
-            history_team1: m.history_team1 || [],
-            history_team2: m.history_team2 || []
-          }))
-        ])
-      )
-    }
-  }
-  await saveGroupPhasePayload(payload)
+  await saveGroupPhasePayload(buildGroupPhasePayload(groupMatches.value))
 }
 
 async function saveGroupPhasePayload(payload) {
@@ -1010,6 +1024,28 @@ async function saveGroupPhasePayload(payload) {
   }
 }
 
+function buildGroupPhasePayload(matchesByGroup) {
+  return {
+    group_phase: {
+      groups: lastGroupsMeta.value.map(g => ({
+        name: g.name,
+        size: g.teams.length,
+        teams: g.teams
+      })),
+      matches: Object.fromEntries(
+        Object.entries(matchesByGroup || {}).map(([g, ms]) => [
+          g,
+          (ms || []).map(m => ({
+            ...m,
+            history_team1: m.history_team1 || [],
+            history_team2: m.history_team2 || []
+          }))
+        ])
+      )
+    }
+  }
+}
+
 /* Auto-Load */
 onMounted(() => {
   reloadAll()
@@ -1023,7 +1059,7 @@ watch(
 
 watch(() => store.groupPhase, (newGp) => {
   // Verhindere das Schließen von Overlays durch WebSocket-Updates
-  if (pendingShooter.value || pendingConclusion.value) return
+  if (pendingShooter.value || pendingConclusion.value || draggedQueueMatchKey.value) return
 
   if (newGp?.matches) {
     const mapped = {}
@@ -1129,6 +1165,118 @@ function ensureGroupMatches(group) {
   syncTableAssignments(false)
   emit('update:group-matches', groupMatches.value)
   scheduleAutoSave()
+}
+
+function clearQueueDragState() {
+  draggedQueueMatchKey.value = null
+  hoveredQueueMatchKey.value = null
+  hoveredQueuePosition.value = null
+}
+
+function onQueueDragStart(match, event) {
+  const key = matchKey(match)
+  draggedQueueMatchKey.value = key
+  hoveredQueueMatchKey.value = key
+  hoveredQueuePosition.value = 'before'
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', key)
+}
+
+function onQueueDragEnd() {
+  clearQueueDragState()
+}
+
+function getQueueDropPosition(event) {
+  const rect = event.currentTarget?.getBoundingClientRect?.()
+  if (!rect) return 'after'
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+function onQueueDragOver(match, event) {
+  if (!draggedQueueMatchKey.value) return
+  hoveredQueueMatchKey.value = matchKey(match)
+  hoveredQueuePosition.value = getQueueDropPosition(event)
+}
+
+function onQueueListDragOver() {
+  if (!draggedQueueMatchKey.value || !queueMatches.value.length) return
+  hoveredQueueMatchKey.value = matchKey(queueMatches.value[queueMatches.value.length - 1])
+  hoveredQueuePosition.value = 'after'
+}
+
+async function onQueueDrop(match, event) {
+  if (!draggedQueueMatchKey.value) return
+  hoveredQueueMatchKey.value = matchKey(match)
+  hoveredQueuePosition.value = getQueueDropPosition(event)
+  await persistQueueReorder()
+}
+
+async function onQueueListDrop() {
+  if (!draggedQueueMatchKey.value) return
+  if (!hoveredQueueMatchKey.value && queueMatches.value.length) {
+    hoveredQueueMatchKey.value = matchKey(queueMatches.value[queueMatches.value.length - 1])
+    hoveredQueuePosition.value = 'after'
+  }
+  await persistQueueReorder()
+}
+
+async function persistQueueReorder() {
+  const draggedKey = draggedQueueMatchKey.value
+  const targetKey = hoveredQueueMatchKey.value
+  const targetPosition = hoveredQueuePosition.value || 'after'
+
+  if (!draggedKey || !targetKey) {
+    clearQueueDragState()
+    return
+  }
+
+  const waitingMatches = queueMatches.value.slice()
+  const fromIndex = waitingMatches.findIndex(match => matchKey(match) === draggedKey)
+  const targetIndex = waitingMatches.findIndex(match => matchKey(match) === targetKey)
+
+  if (fromIndex === -1 || targetIndex === -1) {
+    clearQueueDragState()
+    return
+  }
+
+  let insertIndex = targetIndex + (targetPosition === 'after' ? 1 : 0)
+  if (fromIndex < insertIndex) insertIndex -= 1
+  if (insertIndex === fromIndex) {
+    clearQueueDragState()
+    return
+  }
+
+  const reorderedWaitingMatches = waitingMatches.slice()
+  const [movedMatch] = reorderedWaitingMatches.splice(fromIndex, 1)
+  reorderedWaitingMatches.splice(insertIndex, 0, movedMatch)
+
+  const pendingOrderKeys = [
+    ...activeMatches.value.map(match => matchKey(match)),
+    ...reorderedWaitingMatches.map(match => matchKey(match)),
+  ]
+  const pendingOrderMap = new Map(
+    pendingOrderKeys.map((key, idx) => [key, idx])
+  )
+
+  const nextMatches = {}
+  for (const [groupName, matches] of Object.entries(groupMatches.value || {})) {
+    nextMatches[groupName] = (matches || [])
+      .map(match => {
+        const key = matchKey({ ...match, group_name: match.group_name || groupName })
+        if (match.winner || !pendingOrderMap.has(key)) return match
+        const nextOrderIndex = pendingOrderMap.get(key)
+        if (Number(match.order_index ?? 0) === nextOrderIndex) return match
+        return { ...match, order_index: nextOrderIndex }
+      })
+      .sort((a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0))
+  }
+
+  groupMatches.value = nextMatches
+  emit('update:group-matches', groupMatches.value)
+  syncTableAssignments(false)
+  clearQueueDragState()
+
+  await saveGroupPhasePayload(buildGroupPhasePayload(groupMatches.value))
 }
 
 /* ------------ Eingabe-Handler (lokal + Autosave) ----------- */
@@ -2603,6 +2751,49 @@ function formatPlayers(teamName) {
 <style scoped>
 .match-entry {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.group-queue-card {
+  overflow: hidden;
+}
+
+.group-queue-list {
+  max-height: 430px;
+  overflow-y: auto;
+}
+
+.group-queue-item {
+  cursor: grab;
+  user-select: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+}
+
+.group-queue-item:active {
+  cursor: grabbing;
+}
+
+.group-queue-item--dragging {
+  opacity: 0.45;
+}
+
+.group-queue-item--drop-before {
+  border-top: 2px solid rgba(13, 202, 240, 0.95) !important;
+}
+
+.group-queue-item--drop-after {
+  border-bottom: 2px solid rgba(13, 202, 240, 0.95) !important;
+}
+
+.group-queue-handle {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 1rem;
+  line-height: 1;
+  letter-spacing: -0.08em;
+  flex: 0 0 auto;
+}
+
+.group-queue-main {
+  min-width: 0;
 }
 
 .scale-up {

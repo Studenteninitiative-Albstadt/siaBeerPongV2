@@ -17,7 +17,7 @@
       <div class="lvko-preview-layout">
         <div class="lvko-bracket-scroll lvko-bracket-main">
           <div v-if="previewSlots.length" class="lvko-preview-wrap">
-            <KnockoutPreviewTree :slots="previewSlots" :ko-size="previewKoSize" :constrain-to-height="true" />
+            <KnockoutPreviewTree :slots="previewSlots" :ko-size="previewKoSize" />
           </div>
           <div v-else class="lvko-empty">
             <div class="spinner-border text-secondary mb-3" role="status"></div>
@@ -66,7 +66,6 @@
             <KnockoutResultsTree
               :rounds="koRounds"
               :active-match-ids="activeMatchIds"
-              :constrain-to-height="true"
             />
           </div>
           <div v-else class="lvko-empty">
@@ -234,6 +233,10 @@ async function drawQR(url) {
 
 watch(mobileUrl, drawQR)
 watch(qrSize, () => drawQR(mobileUrl.value))
+watch(() => tournament.value?.id, () => drawQR(mobileUrl.value))
+watch(() => phase.value, () => drawQR(mobileUrl.value))
+watch(() => koRounds.value.length, () => drawQR(mobileUrl.value))
+watch(() => activeKOMatches.value.length, () => drawQR(mobileUrl.value))
 
 function onResize() {
   vpWidth.value  = window.innerWidth

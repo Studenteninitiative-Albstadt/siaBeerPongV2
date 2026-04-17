@@ -1,33 +1,32 @@
-# Frontend Router & Access Control
+# Router
 
-Der Router verwaltet die Navigation innerhalb der SPA und implementiert die rollenbasierte Zugriffskontrolle (RBAC).
+Der Router definiert die Hash-Routen und die Frontend-seitigen Rollenchecks.
 
-## Routing-Strategie
+## Technische Grundlage
 
-Das System nutzt `createWebHashHistory`, um Kompatibilität mit einfachen Webservern (ohne URL-Rewriting) sicherzustellen.
+- `createWebHashHistory()`
+- Redirect auf Basis des `auth`-Stores
+- `document.title = 'SIA Bier Pong'` nach jedem Routenwechsel
 
-```text
-[ URL Hash ]
-     |
-     v
-[ router.beforeEach ] -----------------+
-     |                                 |
-     v                                 v
-[ Auth Store Check ] <----( JWT Token / LocalStorage )
-     |
-     +---( valid )------> [ Target View ]
-     |
-     +---( invalid )----> [ /login ]
-```
+## Route-Mapping
 
-## Zugriffsregeln (Permissions)
+| Pfad | Meta | Zugriff |
+| --- | --- | --- |
+| `/login` | `public` | frei |
+| `/admin` | `requiresRoot` | nur `is_root` oder Django-Staff |
+| `/referee` | `requiresOrga` | `is_orga` |
+| `/live` | `requiresAuth` | jeder eingeloggte User |
+| `/mobile` | `public` | frei, Token-Pruefung passiert backendseitig |
 
-| Pfad | Erforderliche Rolle | Beschreibung |
-|---|---|---|
-| `/admin` | `requiresOrga` | Nur für Benutzer mit `is_orga` Flag im JWT. |
-| `/live` | `requiresAuth` | Für Orga- und LiveView-User (Beamer). |
-| `/mobile` | `public` | Zugriff für Spieler (Token-basiert via URL). |
-| `/login` | `public` | Einstiegspunkt für Authentifizierung. |
+## Root-Redirect
 
----
-*Status: 15. April 2026*
+Beim Aufruf von `/` wird wie folgt umgeleitet:
+
+- Root -> `/admin`
+- normaler Orga/Referee -> `/referee`
+- Liveview-User -> `/live`
+- sonst -> `/login`
+
+## Wichtig
+
+Die eigentliche Sicherheit liegt im Backend. Der Router verhindert nur falsche UI-Navigation im Client.

@@ -1,38 +1,31 @@
-# Frontend Source-Struktur
+# Frontend Source
 
-Diese Ebene bildet das Herzstück der User Experience und das State-Management der Applikation.
+Dieser Ordner enthaelt den kompletten Quellcode der SPA.
 
-## Dateisystem & Zuständigkeiten
+## Top-Level-Dateien
 
-| Verzeichnis | Zweck |
-|---|---|
-| `views/` | Haupt-Seiten (Login, Admin, Live, Mobile). |
-| `components/` | Wiederverwendbare UI-Elemente (Bracket, Tabellen, Wizard). |
-| `stores/` | Pinia-State (Turnierdaten & Authentifizierung). |
-| `router/` | Navigation & Zugriffsregeln. |
-| `utils/` | Hilfsfunktionen für Tischbelegung & KO-Darstellung. |
-| `api.js` | Zentraler API-Client für alle Anfragen. |
+| Datei | Zweck |
+| --- | --- |
+| `main.js` | initialisiert App, Pinia, Router, Bootstrap und `fetch.js` |
+| `App.vue` | Root-Shell |
+| `api.js` | zentraler API-Client inkl. `publicRequest()` fuer Mobile |
+| `fetch.js` | globaler JWT-Interceptor fuer rohe `fetch()`-Aufrufe |
+| `style.css` | globale Styles |
 
-## Zentrales State-Management (`stores/`)
+## Unterordner
 
-Das System synchronisiert den lokalen Zustand (`Pinia`) kontinuierlich mit dem Backend (`Django`).
+| Ordner | Zweck |
+| --- | --- |
+| `assets/` | Quell-Assets aus dem Scaffold |
+| `components/` | grosse UI-Bausteine |
+| `router/` | Route-Definitionen und Guards |
+| `stores/` | Pinia-Stores |
+| `utils/` | Match- und KO-Helfer |
+| `views/` | Routen-Ziele |
 
-```text
-[ API Fetch / WebSocket Update ]
-           |
-   +-------v-------+
-   |  Pinia Store  | <----( mergeSnapshot )
-   +-------+-------+
-           |
-   +-------v-------+      +-------------------+
-   |   Vue Views   | <----| Computed Props    |
-   +---------------+      +-------------------+
-```
+## Wichtige Architekturentscheidungen
 
-## Utility-Logik (`utils/`)
-
-- `tableAssignments.js`: Berechnet, welches Spiel auf welchem physischen Tisch stattfindet, um Staus zu vermeiden.
-- `koDisplay.js`: Hilfsfunktionen für die Berechnung von Bracket-Positionen im KO-Baum.
-
----
-*Status: 15. April 2026*
+- Routing ist hash-basiert, damit der Host nur `index.html` ausliefern muss.
+- Viele Komponenten nutzen rohe `fetch()`-Aufrufe; `fetch.js` haengt dafuer global das JWT an.
+- `api.js` trennt geschuetzte Requests von echten Public-Requests wie `mobile-state`.
+- Der Turnierstore merged sowohl Vollsnapshots als auch Teilupdates vom WebSocket.

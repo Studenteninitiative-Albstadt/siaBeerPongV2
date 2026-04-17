@@ -385,6 +385,108 @@ function serializeKoRoundForRelease(round) {
   }
 }
 
+function koWinnerFor(match) {
+  return match?.winner || autoWinner(match?.team1, match?.team2)
+}
+
+function isKoMatchStartedLocal(match) {
+  if (!match) return false
+  if (match.winner) return true
+  if (safeNum(match.cups_team1) > 0 || safeNum(match.cups_team2) > 0) return true
+  if (match.is_overtime) return true
+  return Number.isFinite(Number(match.table_no)) && Number(match.table_no) > 0
+}
+
+function resetKoMatchProgress(match) {
+  if (!match) return
+  match.winner = null
+  match.cups_team1 = 0
+  match.cups_team2 = 0
+  match.cups_state_team1 = null
+  match.cups_state_team2 = null
+  match.is_overtime = false
+  match.table_no = null
+  match.rerack_used_team1 = false
+  match.rerack_used_team2 = false
+}
+
+function syncNextRoundFromCurrent(curRound, nextRound) {
+  const currentMatches = curRound?.matches || []
+  const nextMatches = nextRound?.matches || []
+  nextMatches.forEach((nextMatch, idx) => {
+    if (!nextMatch || isKoMatchStartedLocal(nextMatch)) return
+    const sourceA = currentMatches[idx * 2] || null
+    const sourceB = currentMatches[idx * 2 + 1] || null
+    const desiredTeam1 = koWinnerFor(sourceA) || null
+    const desiredTeam2 = koWinnerFor(sourceB) || null
+    const teamsChanged = nextMatch.team1 !== desiredTeam1 || nextMatch.team2 !== desiredTeam2
+    if (!teamsChanged) return
+    nextMatch.team1 = desiredTeam1
+    nextMatch.team2 = desiredTeam2
+    resetKoMatchProgress(nextMatch)
+  })
+}
+
+function buildNextMainRoundForRelease(mainInfoIndex) {
+  const mainInfos = getKoMainRoundInfos(roundsLocal)
+  const targetInfo = mainInfos[mainInfoIndex]
+  if (!targetInfo) return null
+  if (mainInfoIndex === 0) return serializeKoRoundForRelease(targetInfo.round)
+  const previousRound = mainInfos[mainInfoIndex - 1]?.round
+  const matches = (targetInfo.round?.matches || [])
+    .map((match, idx) => {
+      const sourceA = previousRound?.matches?.[idx * 2]
+      const sourceB = previousRound?.matches?.[idx * 2 + 1]
+      const team1 = koWinnerFor(sourceA)
+      const team2 = koWinnerFor(sourceB)
+      if (!team1 || !team2 || team1 === team2) return null
+      return {
+        ko_match_index: Number.isInteger(Number(match?.ko_match_index))
+          ? Number(match.ko_match_index)
+          : idx,
+        team1,
+        team2,
+      }
+    })
+    .filter(Boolean)
+
+  return {
+    bracket_type: targetInfo.round?.bracket_type || 'main',
+    round_name: targetInfo.round?.round_name || '',
+    matches,
+  }
+}
+
+function buildPlacementRoundForRelease() {
+  const placementRound = roundsLocal.find(round => round?.bracket_type === 'placement')
+  if (!placementRound) return null
+  const mainInfos = getKoMainRoundInfos(roundsLocal)
+  if (mainInfos.length < 2) return null
+  const semifinalRound = mainInfos[mainInfos.length - 2]?.round
+  const losers = (semifinalRound?.matches || [])
+    .map(match => {
+      const winner = koWinnerFor(match)
+      if (!winner || !match?.team1 || !match?.team2) return null
+      return winner === match.team1 ? match.team2 : match.team1
+    })
+    .filter(Boolean)
+
+  if (losers.length < 2 || losers[0] === losers[1]) return null
+  const placementMatch = placementRound.matches?.[0] || {}
+
+  return {
+    bracket_type: placementRound.bracket_type || 'placement',
+    round_name: placementRound.round_name || 'Spiel um Platz 3',
+    matches: [{
+      ko_match_index: Number.isInteger(Number(placementMatch?.ko_match_index))
+        ? Number(placementMatch.ko_match_index)
+        : 0,
+      team1: losers[0],
+      team2: losers[1],
+    }],
+  }
+}
+
 /* Undo history per match+team: Map<"rIdx:mIdx:teamKey", number[]> */
 const koUndoHistory = ref(new Map())
 
@@ -998,22 +1100,12 @@ function updatePlacementRound(roundsArr) {
 
   const newTeam1 = losers[0] || null
   const newTeam2 = losers[1] || null
-
-  const resolvedTeam1 = newTeam1 || match.team1 || null
-  const resolvedTeam2 = newTeam2 || match.team2 || null
-  const teamsChanged =
-    (newTeam1 && match.team1 !== newTeam1) ||
-    (newTeam2 && match.team2 !== newTeam2)
-
-  if (teamsChanged) {
-    match.cups_team1 = 0
-    match.cups_team2 = 0
-    match.winner = null
-    match.table_no = null
-  }
-
-  match.team1 = resolvedTeam1
-  match.team2 = resolvedTeam2
+  if (isKoMatchStartedLocal(match)) return
+  const teamsChanged = match.team1 !== newTeam1 || match.team2 !== newTeam2
+  if (!teamsChanged) return
+  match.team1 = newTeam1
+  match.team2 = newTeam2
+  resetKoMatchProgress(match)
 }
 
 function propagateAll(rounds) {
@@ -1022,20 +1114,7 @@ function propagateAll(rounds) {
     const nxt = rounds[r + 1]
     if (!cur || !nxt) continue
     if (cur.bracket_type !== 'main' || nxt.bracket_type !== 'main') continue
-
-    cur.matches.forEach((m, idx) => {
-      const w = m.winner || autoWinner(m.team1, m.team2)
-      if (!w) return
-      const tIdx = Math.floor(idx / 2)
-      const pos = (idx % 2 === 0) ? 'team1' : 'team2'
-      const nextMatch = nxt.matches[tIdx]
-      if (!nextMatch) return
-      if (nextMatch[pos] !== w) {
-        nextMatch[pos] = w
-        nextMatch.winner = null
-        nextMatch.table_no = null
-      }
-    })
+    syncNextRoundFromCurrent(cur, nxt)
   }
   updatePlacementRound(rounds)
 }
@@ -1107,20 +1186,7 @@ function recalcPropagation(startRIdx) {
     const nxt = roundsLocal[rr + 1]
     if (!cur || !nxt) continue
     if (cur.bracket_type !== 'main' || nxt.bracket_type !== 'main') continue
-
-    cur.matches.forEach((mm, idx) => {
-      const w = mm.winner || autoWinner(mm.team1, mm.team2)
-      if (!w) return
-      const tIdx = Math.floor(idx / 2)
-      const pos = (idx % 2 === 0) ? 'team1' : 'team2'
-      const nextMatch = nxt.matches[tIdx]
-      if (!nextMatch) return
-      if (nextMatch[pos] !== w) {
-        nextMatch[pos] = w
-        nextMatch.winner = null
-        nextMatch.table_no = null
-      }
-    })
+    syncNextRoundFromCurrent(cur, nxt)
   }
   updatePlacementRound(roundsLocal)
 }
@@ -1292,29 +1358,19 @@ async function startNextKoRound() {
   if (!canStartNextKoRound.value) return
   loading.value = true
   try {
-    await fetch(`${API}/tournaments/${props.tournamentId}/save-ko-bracket`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rounds: roundsLocal,
-        active_main_round_index: activeMainRoundIndex.value,
-        active_stage_kind: activeStageKind.value,
-      }),
-    })
-
     const mainInfos = getKoMainRoundInfos(roundsLocal)
-    const nextMainInfo = mainInfos[activeMainRoundIndex.value + 1] || null
-    const placementRound = roundsLocal.find(round => round?.bracket_type === 'placement') || null
+    const nextMainRoundPayload = buildNextMainRoundForRelease(activeMainRoundIndex.value + 1)
+    const placementRoundPayload = (activeMainRoundIndex.value + 1 === mainInfos.length - 1)
+      ? buildPlacementRoundForRelease()
+      : null
     const res = await fetch(`${API}/tournaments/${props.tournamentId}/start-ko-next-round`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         active_main_round_index: activeMainRoundIndex.value,
         active_stage_kind: activeStageKind.value,
-        next_main_round: serializeKoRoundForRelease(nextMainInfo?.round),
-        placement_round: nextMainInfo && (activeMainRoundIndex.value + 1 === mainInfos.length - 1)
-          ? serializeKoRoundForRelease(placementRound)
-          : null,
+        next_main_round: nextMainRoundPayload,
+        placement_round: placementRoundPayload,
       }),
     })
     const data = await res.json().catch(() => null)

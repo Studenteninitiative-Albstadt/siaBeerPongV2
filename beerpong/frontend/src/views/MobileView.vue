@@ -176,7 +176,6 @@ import { useTournamentStore } from '../stores/tournament.js'
 import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
 import {
-  DEFAULT_UPCOMING_MATCH_LIMIT,
   getAssignedActiveMatches,
   getUpcomingMatches,
   getUpcomingMatchesTotal,
@@ -236,6 +235,7 @@ const currentPhase   = computed(() => store.tournament?.current_phase ?? store.t
 const currentTab     = ref((currentPhase.value === 'ko' || currentPhase.value === 'ko_preview') ? 'ko' : 'groups')
 let mobileRefreshTimer = null
 const isKnockoutPhase = computed(() => currentPhase.value === 'ko' || currentPhase.value === 'ko_preview')
+const MOBILE_UPCOMING_MATCH_LIMIT = Number.MAX_SAFE_INTEGER
 
 // Auto-switch to KO tab when admin transitions the tournament to KO phase or preview
 watch(currentPhase, (phase) => {
@@ -385,11 +385,11 @@ const activeTeamNames = computed(() => {
 
 const upcomingMatches = computed(() =>
   isKnockoutPhase.value
-    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT, activeKoMainRoundIndex.value, activeKoStageKind.value).map(m => ({
+    ? getKOUpcomingMatches(koRounds.value, activeTableCount.value, MOBILE_UPCOMING_MATCH_LIMIT, activeKoMainRoundIndex.value, activeKoStageKind.value).map(m => ({
         ...m,
         round: m.round_name || 'KO-Phase',
       }))
-    : getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, DEFAULT_UPCOMING_MATCH_LIMIT)
+    : getUpcomingMatches(store.groupPhase?.matches ?? {}, activeTableCount.value, MOBILE_UPCOMING_MATCH_LIMIT)
 )
 const upcomingMatchesTotal = computed(() =>
   isKnockoutPhase.value

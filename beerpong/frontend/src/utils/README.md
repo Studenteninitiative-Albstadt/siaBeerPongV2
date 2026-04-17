@@ -1,32 +1,34 @@
-# Frontend Utilities
+# Utilities
 
-Algorithmische Basis für den Turnierfluss und die visuelle Konsistenz.
+Hier liegen die algorithmischen Helfer fuer Match-Queue, Tischzuweisung und KO-Anzeige.
 
-## Tischbelegungs-Logik (`tableAssignments.js`)
+## `tableAssignments.js`
 
-Stellt sicher, dass Spiele stabil auf physischen Tischen bleiben.
+Zustaendig fuer:
 
-```text
-[ Alle offenen Matches ]
-           |
-   +-------v-------+
-   | Pass 1: Persisted | (Matches mit fester Tisch-ID)
-   +-------+-------+
-           |
-   +-------v-------+
-   | Pass 2: In-Progress | (Laufende Spiele ohne ID stabil halten)
-   +-------+-------+
-           |
-   +-------v-------+
-   | Pass 3: Waiting | (Nachrücken auf freie Tische)
-   +---------------+
-```
+- Match-Keys und Tabellenummern
+- Flattening der Gruppenmatches
+- Erkennung von laufenden Spielen
+- stabile Tischzuweisung fuer Gruppen- und KO-Spiele
+- Berechnung von `active`, `upcoming` und `upcoming total`
 
-## Neue Visualisierungs-Logik
+### Aktuelles Verhalten
 
-- **Proportional Scaling**: Die visuelle Darstellung der Tische (3D) folgt nun strengen mathematischen Verhältnissen (Breite zu Höhe, Bechergröße zu Breite).
-- **Match-Key Identität**: Gewährleistet, dass Animationen auch bei Store-Updates (Merge) am korrekten Tisch abgespielt werden.
-- **Cup-State Normalisierung**: Berechnet Becher-Arrays (6/10) basierend auf Hit-Counts und Overtime-Status.
+- schon zugewiesene Tische bleiben stabil
+- laufende Spiele ohne persistierte `table_no` werden moeglichst nicht verdrängt
+- wartende Spiele ruecken auf freie Tische nach
+- parallele Doppelbelegung eines Teams wird verhindert
+- eine vollstaendige Fairness-Sortierung ueber die komplette Queue wird nicht berechnet
 
----
-*Status: 15. April 2026 - Scalable Design Logic Integrated*
+## `koDisplay.js`
+
+Zustaendig fuer:
+
+- Normalisierung gespeicherter KO-Runden
+- Propagation von Siegern in Folge-Runden
+- Verwaltung von `Spiel um Platz 3` und `Finale`
+- Ableitung der aktiven KO-Stufe (`main` vs. `placement`)
+- Filter fuer die aktuell freigegebene KO-Stage
+- Ermittlung, ob das Finale mit 10 Bechern gespielt werden soll
+
+Diese Datei ist die wichtigste Anzeige-Logik fuer Admin, Live und Mobile in der KO-Phase.

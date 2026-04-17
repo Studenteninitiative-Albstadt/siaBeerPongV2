@@ -425,8 +425,19 @@ class TournamentViewSet(ViewSet):
             'active_stage_kind',
             request.data.get('activeStageKind'),
         )
-        Match.objects.filter(tournament=t, phase=Match.PHASE_KO).delete()
         Tiebreak.objects.filter(tournament=t, mode='ko_preview').delete()
+
+        existing_matches = list(
+            Match.objects.filter(tournament=t, phase=Match.PHASE_KO)
+            .select_related('team1', 'team2', 'winner', 'table')
+        )
+        existing_by_id = {match.id: match for match in existing_matches}
+        existing_by_key = {
+            (match.ko_bracket_type or 'main', match.ko_round or '', match.ko_match_index): match
+            for match in existing_matches
+        }
+        seen_match_ids = set()
+        affected_player_ids = set()
 
         for round_data in rounds:
             round_name = str(round_data.get('round_name') or 'Round')
@@ -449,21 +460,93 @@ class TournamentViewSet(ViewSet):
                         name=f'Tisch {table_no}',
                         defaults={'is_active': True},
                     )
-                Match.objects.create(
+                raw_match_id = m.get('id')
+                try:
+                    match_id = int(raw_match_id) if raw_match_id is not None else None
+                except (TypeError, ValueError):
+                    match_id = None
+
+                ko_match_index = m.get('ko_match_index', idx)
+                try:
+                    ko_match_index = int(ko_match_index)
+                except (TypeError, ValueError):
+                    ko_match_index = idx
+
+                cups_team1 = int(m.get('cups_team1') or 0)
+                cups_team2 = int(m.get('cups_team2') or 0)
+                cups_state_team1 = m.get('cups_state_team1') if isinstance(m.get('cups_state_team1'), list) else []
+                cups_state_team2 = m.get('cups_state_team2') if isinstance(m.get('cups_state_team2'), list) else []
+                team1_rerack_used = bool(m.get('rerack_used_team1', False))
+                team2_rerack_used = bool(m.get('rerack_used_team2', False))
+                is_overtime = bool(m.get('is_overtime', False))
+
+                match_key = (bracket_type, round_name, ko_match_index)
+                match_obj = existing_by_id.get(match_id) if match_id is not None else None
+                if not match_obj:
+                    match_obj = existing_by_key.get(match_key)
+
+                if match_obj:
+                    teams_changed = match_obj.team1_id != t1.id or match_obj.team2_id != t2.id
+                    if teams_changed and not _ko_match_has_started_db(match_obj):
+                        player_ids = list(match_obj.cup_hits.values_list('player_id', flat=True))
+                        if player_ids:
+                            affected_player_ids.update(player_ids)
+                            match_obj.cup_hits.all().delete()
+                        match_obj.history_team1 = []
+                        match_obj.history_team2 = []
+                        match_obj.hit_history_team1 = []
+                        match_obj.hit_history_team2 = []
+
+                    if not teams_changed or not _ko_match_has_started_db(match_obj):
+                        match_obj.team1 = t1
+                        match_obj.team2 = t2
+                        match_obj.winner = winner
+                        match_obj.cups_team1 = cups_team1
+                        match_obj.cups_team2 = cups_team2
+                        match_obj.cups_state_team1 = cups_state_team1
+                        match_obj.cups_state_team2 = cups_state_team2
+                        match_obj.team1_rerack_used = team1_rerack_used
+                        match_obj.team2_rerack_used = team2_rerack_used
+                        match_obj.is_overtime = is_overtime
+                        match_obj.ko_round = round_name
+                        match_obj.ko_bracket_type = bracket_type
+                        match_obj.ko_match_index = ko_match_index
+                        match_obj.table = table
+                        match_obj.status = 'done' if winner else 'pending'
+                        match_obj.save()
+
+                    seen_match_ids.add(match_obj.id)
+                    continue
+
+                match_obj = Match.objects.create(
                     tournament=t, phase=Match.PHASE_KO,
                     team1=t1, team2=t2, winner=winner,
-                    cups_team1=int(m.get('cups_team1') or 0),
-                    cups_team2=int(m.get('cups_team2') or 0),
-                    cups_state_team1=m.get('cups_state_team1') if isinstance(m.get('cups_state_team1'), list) else [],
-                    cups_state_team2=m.get('cups_state_team2') if isinstance(m.get('cups_state_team2'), list) else [],
-                    team1_rerack_used=bool(m.get('rerack_used_team1', False)),
-                    team2_rerack_used=bool(m.get('rerack_used_team2', False)),
-                    is_overtime=bool(m.get('is_overtime', False)),
-                    ko_round=round_name, ko_bracket_type=bracket_type, ko_match_index=idx,
+                    cups_team1=cups_team1,
+                    cups_team2=cups_team2,
+                    cups_state_team1=cups_state_team1,
+                    cups_state_team2=cups_state_team2,
+                    team1_rerack_used=team1_rerack_used,
+                    team2_rerack_used=team2_rerack_used,
+                    is_overtime=is_overtime,
+                    ko_round=round_name, ko_bracket_type=bracket_type, ko_match_index=ko_match_index,
                     table=table,
                     status='done' if winner else 'pending',
                     history_team1=[], history_team2=[]
                 )
+                seen_match_ids.add(match_obj.id)
+
+        stale_matches = [
+            match for match in existing_matches
+            if match.id not in seen_match_ids and not _ko_match_has_started_db(match)
+        ]
+        for stale_match in stale_matches:
+            player_ids = list(stale_match.cup_hits.values_list('player_id', flat=True))
+            if player_ids:
+                affected_player_ids.update(player_ids)
+            stale_match.delete()
+
+        if affected_player_ids:
+            _sync_player_hit_totals(affected_player_ids)
 
         sorted_rounds = sort_ko_rounds(rounds)
         existing_control = get_ko_control_payload(t)
@@ -560,9 +643,28 @@ class TournamentViewSet(ViewSet):
                         continue
                     match_obj.team1 = team1
                     match_obj.team2 = team2
+                    match_obj.winner = None
+                    match_obj.cups_team1 = 0
+                    match_obj.cups_team2 = 0
+                    match_obj.cups_state_team1 = []
+                    match_obj.cups_state_team2 = []
+                    match_obj.hit_history_team1 = []
+                    match_obj.hit_history_team2 = []
+                    match_obj.history_team1 = []
+                    match_obj.history_team2 = []
+                    match_obj.team1_rerack_used = False
+                    match_obj.team2_rerack_used = False
                     match_obj.table = None
                     match_obj.status = 'pending'
-                    match_obj.save(update_fields=['team1', 'team2', 'table', 'status'])
+                    match_obj.save(update_fields=[
+                        'team1', 'team2', 'winner',
+                        'cups_team1', 'cups_team2',
+                        'cups_state_team1', 'cups_state_team2',
+                        'hit_history_team1', 'hit_history_team2',
+                        'history_team1', 'history_team2',
+                        'team1_rerack_used', 'team2_rerack_used',
+                        'table', 'status',
+                    ])
 
         ko_state = get_full_state(t).get('ko_phase') or {}
         rounds = sort_ko_rounds(ko_state.get('rounds') or [])
@@ -1039,6 +1141,26 @@ def _normalize_credit_allocations(raw_allocations):
         if player_name and count > 0:
             allocations.append((player_name, count))
     return allocations
+
+
+def _ko_match_has_started_db(match):
+    if not match:
+        return False
+    if match.winner_id or match.status == 'done':
+        return True
+    if match.cups_team1 or match.cups_team2 or match.is_overtime:
+        return True
+    if match.table_id:
+        return True
+    return match.cup_hits.exists()
+
+
+def _sync_player_hit_totals(player_ids):
+    if not player_ids:
+        return
+    for player in Player.objects.filter(id__in=set(player_ids)):
+        player.total_cups_hit = CupHit.objects.filter(player=player).count()
+        player.save(update_fields=['total_cups_hit'])
 
 
 def _log_action(tournament, match, user, action_type: str, payload: dict):

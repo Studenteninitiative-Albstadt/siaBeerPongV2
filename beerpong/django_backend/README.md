@@ -1,59 +1,61 @@
-# SIA BeerPong - Django Backend
+# Django Backend
 
-Das Backend dient als zentrale Datenquelle und Zustandsmaschine für alle Turniere. Es nutzt Django REST Framework (DRF) für die API und Django Channels für Echtzeit-Kommunikation.
+Dies ist das aktive Backend des Projekts. Es liefert REST-Endpunkte, WebSockets, Rollen, Turnierpersistenz und den kompletten Snapshot-State fuer Admin, LiveView, MobileView und RefereeView.
 
-## Architektur & Komponenten
+## Technischer Rahmen
 
-```text
-       [ Request ]
-           |
-   +-------v-------+
-   |   ASGI / WSGI | <---( Daphne Server )
-   +-------+-------+
-           |
-   +-------v-------+      +-------------------+
-   |   Middleware  | <----| SimpleJWT (Auth)  |
-   +-------+-------+      +-------------------+
-           |
-   +-------v-------+      +-------------------+
-   |   DRF Views   | <----| Serializers       |
-   +-------+-------+      +---------+---------+
-           |                        |
-   +-------v-------+      +---------v---------+
-   |   Services    | <----| Models (SQLite)   |
-   +---------------+      +-------------------+
-```
+| Bereich | Stand |
+| --- | --- |
+| Python | 3.12 |
+| Framework | Django 5.x |
+| API | Django REST Framework |
+| Auth | SimpleJWT |
+| Echtzeit | Channels + Redis |
+| Dev-Server | `daphne` via `entrypoint.sh` |
+| Prod-Server | `gunicorn` + `uvicorn.workers.UvicornWorker` via `entrypoint.prod.sh` |
 
-- **Daphne**: ASGI-Server, der sowohl HTTP als auch WebSockets bedient.
-- **Services (`tournament/services.py`)**: Enthält die Kernlogik für Gruppengenerierung, Standings-Berechnungen und Snapshots.
-- **Models**: Definieren die Turnierstruktur (Turniere, Teams, Gruppen-Matches, KO-Matches).
+## Wichtige Dateien
 
-## Datenmodell-Übersicht
+| Datei / Ordner | Zweck |
+| --- | --- |
+| `manage.py` | Django-Management-Kommandos |
+| `config/` | globale Settings, Root-URLs, ASGI/WSGI |
+| `tournament/` | komplette Fachlogik der App |
+| `requirements.txt` | Django, DRF, JWT, Channels, Redis, Gunicorn, Uvicorn, Psycopg |
+| `Dockerfile` | Dev-Image mit Daphne |
+| `Dockerfile.prod` | Prod-Image fuer Gunicorn/Uvicorn |
+| `entrypoint.sh` | Dev-Start mit Migrationen und Default-Usern `admin` / `live` |
+| `entrypoint.prod.sh` | Prod-Start mit Env-Check, Migrationen, Collectstatic und Bootstrap-Usern |
 
-```text
-[ Tournament ]
-      |
-      +---< [ Table ] (Tisch-Zuordnung)
-      |
-      +---< [ Team ] ----< [ Player ] (Spieler-Statistiken)
-      |
-      +---< [ Match ] (Phasen: group, playin, ko)
-      |        |
-      |        +---< [ CupHit ] (Einzelne Treffer für Top-Player)
-      |
-      +---< [ Tiebreak ] (Metadaten & KO-Vorschau)
-```
+## Laufzeitmodi
 
-## Echtzeit-Updates (WebSockets)
+### Dev
 
-Das Backend sendet Statusänderungen automatisch an alle verbundenen Clients (Admin, Live, Mobile).
+- DB standardmaessig SQLite
+- `DEBUG=True`
+- `daphne` auf `0.0.0.0:8000`
+- Default-User:
+- `admin` / `admin`
+- `live` / `live`
 
-```text
-Mutation (API) --> Service Logik --> Database Save --> WebSocket Broadcast
-```
+### Produktion
 
-- **Consumer**: `tournament/consumers.py` verwaltet Verbindungen.
-- **Routing**: `tournament/routing.py` definiert WS-Endpunkte.
+- DB per `DB_ENGINE=postgres`
+- Redis fuer Channel Layer
+- Postgres fuer Persistenz
+- statische Dateien landen in `staticfiles/`
+- Bootstrap-User:
+- `DJANGO_SUPERUSER_*` wird als Root/Admin erzeugt
+- `LIVEVIEW_*` wird als Beamer-User erzeugt
+- Referee-Accounts werden nicht automatisch angelegt
 
----
-*Status: 15. April 2026*
+## Schnittstellen
+
+- REST unter `config/urls.py`
+- WebSocket-Routing ueber `config/asgi.py` + `tournament/routing.py`
+- Django-Admin unter `/django-admin/`
+
+Weitere Details liegen in:
+
+- `config/README.md`
+- `tournament/README.md`

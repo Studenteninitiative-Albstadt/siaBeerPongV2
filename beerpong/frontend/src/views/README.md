@@ -1,30 +1,31 @@
-# Frontend Views (Produktions-Schnittstellen)
+# Views
 
-Zusammenführung spezialisierter UI-Komponenten für maximale User Experience während des Turniers.
+Diese Komponenten sind die eigentlichen Routen-Ziele des Frontends.
 
-## Ansichten-Portfolio
+## Dateien
 
-| View | Zweck | Zielgruppe |
-|---|---|---|
-| `AdminView.vue` | Vollständige Steuerung. | Turnierleitung |
-| `LiveView.vue` | Gruppenphasen-Übersicht. | Zuschauer (Beamer) |
-| `LiveViewKO.vue` | Finalrunden-Visualisierung. | Zuschauer (Beamer) |
-| `MobileView.vue` | Persönlicher Turnier-Status. | Teilnehmer (QR-Zugriff) |
+| Datei | Route | Zweck |
+| --- | --- | --- |
+| `LoginView.vue` | `/#/login` | JWT-Login |
+| `AdminView.vue` | `/#/admin` | Root-Admin fuer Wizard, Gruppen, Play-In, KO und Referee-Zuweisung |
+| `RefereeView.vue` | `/#/referee` | Schiedsrichter-Bedienoberflaeche fuer zugewiesene Matches |
+| `LiveView.vue` | `/#/live` | Beamer-Ansicht inkl. Landing, Gruppenphase, KO und QR-Code |
+| `MobileView.vue` | `/#/mobile` | oeffentliche Turnieransicht per Token |
 
-## Produktions-Design-Standards
+## Wichtige Klarstellung
 
-### Dynamisches 3/4-Split-Layout
-Die Live-Ansichten nutzen eine intelligente Höhenaufteilung:
-- **Oben (Live-Action)**: Proportionale 3D-Tisch-Visualisierung (Auto-Scaling).
-- **Unten (Kontext)**: Statistische Daten (Standings/Brackets) und QR-Code-Gateway.
+`LiveViewKO.vue` gehoert fachlich zur Live-Ansicht, liegt aber nicht in diesem Ordner, sondern unter `components/`.
 
-### Adaptive Visualisierung (3D)
-Die in `LiveView` & `LiveViewKO` verwendeten 3D-Tische sind über die Master-Variable `--tw` (Table Width) proportional skalierbar. Dies garantiert:
-- **Null-Overflow**: Tische ragen niemals in untere UI-Elemente.
-- **Präzision**: Becher-Positionen bleiben in allen Auflösungen identisch.
+## Zustandsquellen pro View
 
-### Mobile-Infrastruktur
-Jedes Turnier generiert einen eindeutigen `mobileAccessToken`, der in der `LiveView` quadratisch und verzerrungsfrei (aspect-ratio fix) als QR-Code dargestellt wird.
+- `AdminView.vue`: arbeitet eng mit `tournament`-Store und den grossen Phasenkomponenten
+- `RefereeView.vue`: pollt/abonniert die eigene Assignment-Info und sendet Match-Events zurueck
+- `LiveView.vue`: nutzt Store + WebSocket, zeigt fuer KO `LiveViewKO.vue`
+- `MobileView.vue`: nutzt Public-REST + Mobile-WebSocket, hat zusaetzlich Polling-Fallback
 
----
-*Version: 2.0.0 - Design Finalized*
+## Sichtbarer Rollen-Split
+
+- Root-Admin sieht Turnierverwaltung und Referee-Zuweisung
+- normaler Orga-User landet in der Referee-Ansicht
+- Live-User landet in der Beamer-Ansicht
+- Mobile-Gaeste sehen nur lesenden Turnierzustand

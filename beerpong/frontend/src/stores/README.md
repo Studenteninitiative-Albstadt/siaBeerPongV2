@@ -1,34 +1,35 @@
-# Pinia State Management
+# Stores
 
-Die Stores verwalten den globalen Zustand der Anwendung und synchronisieren ihn mit dem Backend.
+Pinia bildet den globalen Client-State fuer Auth und Turnierdaten.
 
-## Daten-Synchronisations-Workflow
+## `auth.js`
 
-Das System arbeitet nach dem Prinzip der "Single Source of Truth" (Backend).
+Aufgaben:
 
-```text
-[ WebSocket Event ] ----+
-                        |
-[ REST API Call ] ------+---> [ Store Action ]
-                              |
-                      +-------v-------+
-                      |  Pinia State  | <---( mergeSnapshot )
-                      +-------+-------+
-                              |
-                      +-------v-------+
-                      |   Vue UI      | (Reaktive Anzeige)
-                      +---------------+
-```
+- liest `access_token` und `refresh_token` aus `localStorage`
+- decodiert Rollenflags direkt aus dem JWT
+- exposes:
+- `isAuthenticated`
+- `isOrga`
+- `isLiveview`
+- `isRoot`
+- `username`
+- `login()` und `logout()`
 
-## Vorhandene Stores
+## `tournament.js`
 
-| Store | Zweck |
-|---|---|
-| `auth.js` | JWT-Handshake, Login-Status und Rollen (Admin/Live). |
-| `tournament.js` | Gesamter Turnier-Status: Snapshot, Gruppen, KO, Play-In. |
+Aufgaben:
 
-- **`auth.js`**: Speichert Token im `localStorage`, um Sessions bei Reloads zu erhalten.
-- **`tournament.js`**: Enthält die Kern-Logik `mergeSnapshot()`, die Teil-Updates vom WebSocket in den Store integriert.
+- haelt `tournament`, `teams`, `teamPlayers`, `topPlayers`, `groupPhase`, `groupStandings`, `playin`, `koPreview`, `koPhase`
+- laedt Vollsnapshots ueber `load()`
+- merged Teilupdates ueber `_apply()`
+- verbindet WebSockets fuer normale User und Mobile-User
 
----
-*Status: 15. April 2026*
+## Wichtige Merge-Details
+
+- Gruppenspiele werden per `match.id` in den Snapshot integriert.
+- einzelne KO-Match-Updates werden zuerst per `id` gemappt
+- falls noetig per `ko_round`, `ko_bracket_type` und `ko_match_index`
+- dadurch koennen materialisierte KO-Matches spaeter denselben UI-Slot uebernehmen
+
+Der Store ist die zentrale Uebersetzungsschicht zwischen REST/WS und Vue-Komponenten.

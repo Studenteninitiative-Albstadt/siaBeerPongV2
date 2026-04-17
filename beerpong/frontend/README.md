@@ -1,49 +1,57 @@
-# SIA BeerPong - Vue 3 Frontend
+# Frontend
 
-Das Frontend ist eine moderne Single-Page-Application (SPA) auf Basis von Vue 3, Vite und Pinia. Es implementiert den kompletten Turnier-Ablauf von der Anmeldung bis zur Siegerehrung.
+Dies ist die aktive Vue-SPA fuer Admin, LiveView, MobileView und RefereeView.
 
-## Frontend-Architektur
+## Stack
 
-```text
-       [ Browser ]
-           |
-   +-------v-------+      +-------------------+
-   |   Vue Router  | <----| Guards (Auth/Role)|
-   +-------+-------+      +-------------------+
-           |
-   +-------v-------+      +-------------------+
-   |   Views       | <----| Components        |
-   +-------+-------+      +---------+---------+
-           |                        |
-   +-------v-------+      +---------v---------+
-   |   Pinia Store | <----| API / WebSockets  |
-   +---------------+      +-------------------+
-```
+| Paket | Einsatz |
+| --- | --- |
+| `vue` | UI |
+| `vue-router` | Hash-Routing |
+| `pinia` | globaler Zustand |
+| `bootstrap` | Basis-Layout und Komponenten |
+| `qrcode` | QR-Code-Rendering in LiveView |
+| `vite` | Dev-Server und Build |
+| `@vitejs/plugin-vue` | Vue-Support fuer Vite |
 
-- **Router**: Hash-basierte Navigation mit rollenbasierten Zugriffskontrollen.
-- **Pinia**: Zentrales State-Management für Turnierdaten (`tournament.js`) und Authentifizierung (`auth.js`).
-- **WebSockets**: Live-Synchronisation des Turnier-Status.
+## Einstiegspunkte
 
-## Views & Navigations-Pfade
+| Datei | Zweck |
+| --- | --- |
+| `index.html` | setzt Favicon und Dokumenttitel `SIA Bier Pong` |
+| `src/main.js` | startet App, Pinia, Router und globalen Fetch-Interceptor |
+| `src/App.vue` | Root-Komponente |
+| `src/style.css` | globale Styles |
 
-| Pfad | View | Zielgruppe |
-|---|---|---|
-| `/#/login` | LoginView | Alle (System-Einstieg) |
-| `/#/admin` | AdminView | Turnier-Leitung (Wizard, Gruppen, KO) |
-| `/#/live` | LiveView | Beamer / Teilnehmer (Live-Status) |
-| `/#/mobile` | MobileView | Spieler (Read-Only via QR-Token) |
+## Betriebsarten
 
-## Entwicklungs-Setup
+### Dev
 
-Lokal (außerhalb von Docker):
+- `npm run dev`
+- typischerweise ueber `docker-compose.yml`
+- `VITE_API_BASE` ist standardmaessig leer, daher gleiche Origin / Proxy
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### Produktion
 
-Die API-URL wird über die Umgebungsvariable `VITE_API_BASE` gesteuert.
+- Build erfolgt ueber `deploy/nginx/Dockerfile`
+- Ergebnis landet als statische SPA im Nginx-Image
+- API- und WebSocket-Zugriffe gehen ueber denselben Host
 
----
-*Status: 15. April 2026*
+## Route-Ziele
+
+| Route | Bedeutung |
+| --- | --- |
+| `/#/login` | Login |
+| `/#/admin` | Root-Admin |
+| `/#/referee` | Schiedsrichter |
+| `/#/live` | Beamer |
+| `/#/mobile` | oeffentliche Mobile-Seite |
+
+## Verzeichnisse
+
+| Ordner | Zweck |
+| --- | --- |
+| `public/` | statische Assets wie Logo/Favicon |
+| `src/` | kompletter Quellcode |
+
+Mehr Details liegen in den Unterordner-READMEs.

@@ -262,7 +262,6 @@ import { useTournamentStore } from '../stores/tournament.js'
 import LiveTable3D from '../components/LiveTable3D.vue'
 import GroupStandingsTable from '../components/GroupStandingsTable.vue'
 import {
-  DEFAULT_UPCOMING_MATCH_LIMIT,
   getAssignedActiveMatches,
   getUpcomingMatches,
   getUpcomingMatchesTotal,
@@ -273,6 +272,7 @@ import { normalizeKoRoundsForDisplay } from '../utils/koDisplay.js'
 const auth   = useAuthStore()
 const store  = useTournamentStore()
 const router = useRouter()
+const LIVEVIEW_UPCOMING_MATCH_LIMIT = 8
 
 const CAROUSEL_MS = 6000
 const activeTournament = computed(() => store.tournament)
@@ -402,7 +402,7 @@ const upcomingMatches = computed(() =>
   getUpcomingMatches(
     store.groupPhase?.matches || {},
     activeTournament.value?.tableCount ?? activeTournament.value?.table_count ?? 2,
-    DEFAULT_UPCOMING_MATCH_LIMIT
+    LIVEVIEW_UPCOMING_MATCH_LIMIT
   )
 )
 const upcomingMatchesTotal = computed(() =>

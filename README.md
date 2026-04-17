@@ -1,37 +1,27 @@
-# SIA BeerPong V2 - Tournament Management System
+# SIA Bier Pong V2
 
-Das offizielle Turniermanagement-System der SIA. Diese Applikation bietet eine hochverfügbare, echtzeitfähige Plattform zur Organisation von Beer-Pong-Turnieren, optimiert für den Einsatz auf Beamern (LiveView) und mobilen Endgeräten.
+Dieses Repository enthaelt aktuell genau eine fachlich relevante Applikation: `beerpong/`. Dort liegen Frontend, Backend, Deploy-Konfiguration und die rekursive Projektdoku.
 
-## System-Architektur
+## Repository-Aufbau
 
-Das System basiert auf einem modernen, entkoppelten Stack:
+| Pfad | Zweck |
+| --- | --- |
+| `beerpong/` | aktives SIA-Bier-Pong-Projekt |
+| `.claude/` | editor-/agentenspezifische Metadaten, nicht Teil der Laufzeit |
 
-```text
-[ Frontend ] <---( WebSockets / REST )---> [ Backend ] <---> [ Redis ]
-(Vue 3 SPA)                                (Django DRF)      (Real-time)
-```
+## Einstieg
 
-## Repository-Struktur
+Wenn du am System arbeitest, starte hier:
 
-| Verzeichnis | Inhalt |
-|---|---|
-| `beerpong/` | Aktive Applikation & Docker-Orchestrierung. |
-| `beerpong/django_backend/` | Kern-API, Turnierlogik & WebSocket-Server. |
-| `beerpong/frontend/` | Responsive UI für Admin, LiveView und Mobile. |
+- `beerpong/README.md` fuer den Gesamtueberblick
+- `beerpong/django_backend/README.md` fuer Backend und API
+- `beerpong/frontend/README.md` fuer SPA, Routen und Stores
+- `beerpong/deploy/README.md` fuer Produktionspfad und Nginx
 
-## Deployment (Production)
+## Aktueller Betriebsstand
 
-Die gesamte Infrastruktur ist für den Betrieb in Docker-Containern optimiert.
-
-```bash
-cd beerpong
-docker-compose up -d --build
-```
-
-**Services:**
-- **Frontend**: Port 5173 (Vite / Production Build)
-- **Backend**: Port 8000 (Daphne ASGI Server)
-- **Redis**: Interner Message Broker für Echtzeit-Updates
-
----
-*Version: 2.0.0 - Production Ready*
+- Dev-Stack: `beerpong/docker-compose.yml`
+- Prod-Stack: `beerpong/docker-compose.prod.yml`
+- aktives Backend: Django/DRF/Channels
+- aktives Frontend: Vue 3 / Vite / Pinia
+- Legacy-Flask-Backend liegt nur noch archiviert unter `beerpong/backend/`
