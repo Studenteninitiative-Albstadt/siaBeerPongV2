@@ -231,6 +231,7 @@
             @cup-hit="onLiveCupHit(m.group_name, m.originalIndex, $event)"
             @undo="onLiveUndo(m.group_name, m.originalIndex, $event)"
             @rerack="onLiveRerack(m.group_name, m.originalIndex, $event)"
+            @forfeit="onLiveForfeit(m.group_name, m.originalIndex, $event)"
           />
         </div>
         <div v-if="activeMatches.length === 0" class="col-12">
@@ -246,10 +247,19 @@
           <div>
             <div>Als Nächstes (Warteschlange)</div>
             <div class="small text-light-emphasis fw-normal mt-1">
-              Nur wartende Spiele sind per Drag & Drop umsortierbar.
+              Wartende Spiele sind per Drag & Drop, Buttons oder Fairness-Optimierung umsortierbar.
             </div>
           </div>
-          <span class="badge bg-dark border border-light-subtle flex-shrink-0">{{ upcomingMatchesTotal }} ausstehend</span>
+          <div class="d-flex flex-wrap align-items-center justify-content-end gap-2">
+            <button
+              class="btn btn-sm btn-outline-light"
+              @click="optimizeQueueFairness"
+              :disabled="queueMatches.length < 2"
+            >
+              Fair sortieren
+            </button>
+            <span class="badge bg-dark border border-light-subtle flex-shrink-0">{{ upcomingMatchesTotal }} ausstehend</span>
+          </div>
         </div>
         <div
           class="list-group list-group-flush group-queue-list"
@@ -278,6 +288,24 @@
                   {{ m.team1 }} <strong class="text-secondary mx-2">vs</strong> {{ m.team2 }}
                 </div>
                 <div class="small text-secondary">#{{ idx + 1 }} in der Warteschlange</div>
+              </div>
+              <div class="d-flex align-items-center gap-1 flex-shrink-0">
+                <button
+                  class="btn btn-sm btn-outline-light"
+                  @click.stop="moveQueueMatch(m, -1)"
+                  :disabled="idx === 0"
+                  title="Ein Platz nach oben"
+                >
+                  ↑
+                </button>
+                <button
+                  class="btn btn-sm btn-outline-light"
+                  @click.stop="moveQueueMatch(m, 1)"
+                  :disabled="idx === queueMatches.length - 1"
+                  title="Ein Platz nach unten"
+                >
+                  ↓
+                </button>
               </div>
               <span class="badge bg-dark border border-secondary flex-shrink-0">{{ m.group_name }}</span>
             </div>
@@ -1220,6 +1248,42 @@ async function onQueueListDrop() {
   await persistQueueReorder()
 }
 
+async function applyWaitingQueueOrder(reorderedWaitingMatches, options = {}) {
+  const { clearDragState = true } = options
+  if (!Array.isArray(reorderedWaitingMatches) || !reorderedWaitingMatches.length) {
+    if (clearDragState) clearQueueDragState()
+    return
+  }
+
+  const pendingOrderKeys = [
+    ...activeMatches.value.map(match => matchKey(match)),
+    ...reorderedWaitingMatches.map(match => matchKey(match)),
+  ]
+  const pendingOrderMap = new Map(
+    pendingOrderKeys.map((key, idx) => [key, idx])
+  )
+
+  const nextMatches = {}
+  for (const [groupName, matches] of Object.entries(groupMatches.value || {})) {
+    nextMatches[groupName] = (matches || [])
+      .map(match => {
+        const key = matchKey({ ...match, group_name: match.group_name || groupName })
+        if (match.winner || !pendingOrderMap.has(key)) return match
+        const nextOrderIndex = pendingOrderMap.get(key)
+        if (Number(match.order_index ?? 0) === nextOrderIndex) return match
+        return { ...match, order_index: nextOrderIndex }
+      })
+      .sort((a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0))
+  }
+
+  groupMatches.value = nextMatches
+  emit('update:group-matches', groupMatches.value)
+  syncTableAssignments(false)
+  if (clearDragState) clearQueueDragState()
+
+  await saveGroupPhasePayload(buildGroupPhasePayload(groupMatches.value))
+}
+
 async function persistQueueReorder() {
   const draggedKey = draggedQueueMatchKey.value
   const targetKey = hoveredQueueMatchKey.value
@@ -1250,33 +1314,69 @@ async function persistQueueReorder() {
   const [movedMatch] = reorderedWaitingMatches.splice(fromIndex, 1)
   reorderedWaitingMatches.splice(insertIndex, 0, movedMatch)
 
-  const pendingOrderKeys = [
-    ...activeMatches.value.map(match => matchKey(match)),
-    ...reorderedWaitingMatches.map(match => matchKey(match)),
-  ]
-  const pendingOrderMap = new Map(
-    pendingOrderKeys.map((key, idx) => [key, idx])
-  )
+  await applyWaitingQueueOrder(reorderedWaitingMatches)
+}
 
-  const nextMatches = {}
-  for (const [groupName, matches] of Object.entries(groupMatches.value || {})) {
-    nextMatches[groupName] = (matches || [])
-      .map(match => {
-        const key = matchKey({ ...match, group_name: match.group_name || groupName })
-        if (match.winner || !pendingOrderMap.has(key)) return match
-        const nextOrderIndex = pendingOrderMap.get(key)
-        if (Number(match.order_index ?? 0) === nextOrderIndex) return match
-        return { ...match, order_index: nextOrderIndex }
-      })
-      .sort((a, b) => Number(a.order_index ?? 0) - Number(b.order_index ?? 0))
+async function moveQueueMatch(match, offset) {
+  const waitingMatches = queueMatches.value.slice()
+  const fromIndex = waitingMatches.findIndex(entry => matchKey(entry) === matchKey(match))
+  if (fromIndex === -1) return
+
+  const targetIndex = Math.max(0, Math.min(waitingMatches.length - 1, fromIndex + offset))
+  if (targetIndex === fromIndex) return
+
+  const reorderedWaitingMatches = waitingMatches.slice()
+  const [movedMatch] = reorderedWaitingMatches.splice(fromIndex, 1)
+  reorderedWaitingMatches.splice(targetIndex, 0, movedMatch)
+  clearQueueDragState()
+  await applyWaitingQueueOrder(reorderedWaitingMatches)
+}
+
+function buildQueueFairnessOrder(waitingMatches) {
+  const remaining = waitingMatches.slice()
+  const ordered = []
+  const activeTeamSet = new Set(
+    activeMatches.value.flatMap(match => [match.team1, match.team2]).filter(Boolean)
+  )
+  let lastMatchTeams = new Set()
+  let previousMatchTeams = new Set()
+
+  while (remaining.length) {
+    let bestIndex = 0
+    let bestScore = Infinity
+
+    remaining.forEach((candidate, idx) => {
+      const teams = [candidate.team1, candidate.team2].filter(Boolean)
+      const overlapWithLast = teams.filter(team => lastMatchTeams.has(team)).length
+      const overlapWithPrevious = teams.filter(team => previousMatchTeams.has(team)).length
+      const overlapWithActive = teams.filter(team => activeTeamSet.has(team)).length
+
+      const score =
+        overlapWithLast * 100 +
+        overlapWithPrevious * 25 +
+        overlapWithActive * 12 +
+        idx * 0.01
+
+      if (score < bestScore) {
+        bestScore = score
+        bestIndex = idx
+      }
+    })
+
+    const [chosen] = remaining.splice(bestIndex, 1)
+    ordered.push(chosen)
+    previousMatchTeams = lastMatchTeams
+    lastMatchTeams = new Set([chosen.team1, chosen.team2].filter(Boolean))
   }
 
-  groupMatches.value = nextMatches
-  emit('update:group-matches', groupMatches.value)
-  syncTableAssignments(false)
-  clearQueueDragState()
+  return ordered
+}
 
-  await saveGroupPhasePayload(buildGroupPhasePayload(groupMatches.value))
+async function optimizeQueueFairness() {
+  if (queueMatches.value.length < 2) return
+  clearQueueDragState()
+  const reorderedWaitingMatches = buildQueueFairnessOrder(queueMatches.value)
+  await applyWaitingQueueOrder(reorderedWaitingMatches, { clearDragState: false })
 }
 
 /* ------------ Eingabe-Handler (lokal + Autosave) ----------- */
@@ -1485,6 +1585,48 @@ function onLiveRerack(groupName, matchIndex, payload) {
 
   const eventData = { action_type: 'rerack', team_key: teamKey, previous_state: JSON.stringify(previousState) }
   _sendGroupMatch(groupName, m, eventData)
+  scheduleAutoSave()
+}
+
+function onLiveForfeit(groupName, matchIndex, payload) {
+  const { teamKey } = payload
+  const list = [...groupMatches.value[groupName]]
+  const m = { ...list[matchIndex] }
+  if (!m) return
+
+  const losingTeamName = teamKey === 'team1' ? m.team1 : m.team2
+  const winnerTeamName = teamKey === 'team1' ? m.team2 : m.team1
+  if (!losingTeamName || !winnerTeamName) return
+
+  m.winner = winnerTeamName
+  m.status = 'done'
+  m.table_no = null
+
+  list[matchIndex] = m
+  groupMatches.value[groupName] = list
+  emit('update:group-matches', groupMatches.value)
+  syncTableAssignments(false)
+
+  if (pendingShooter.value?.matchId === m.id) {
+    pendingShooter.value = null
+    selectedPlayer.value = null
+  }
+  if (pendingConclusion.value?.match?.id === m.id) {
+    pendingConclusion.value = null
+  }
+  if (activeTableMatchId.value === m.id) {
+    activeTableMatchId.value = null
+  }
+
+  if (isGroupComplete(groupName)) recomputePerGroupTiebreak(groupName)
+  else clearGroupTiebreak(groupName)
+
+  _sendGroupMatch(groupName, m, {
+    action_type: 'forfeit',
+    team_key: teamKey,
+    team_name: losingTeamName,
+    winner_name: winnerTeamName,
+  })
   scheduleAutoSave()
 }
 
@@ -2438,8 +2580,10 @@ function finishConclusion(actuallyFinish) {
     // Finaler Sieg
     const a = safeNum(match.cups_team1)
     const b = safeNum(match.cups_team2)
-    if (a !== b) match.winner = a > b ? match.team1 : match.team2
-    else match.winner = match.team1 // Fallback bei absolutem Gleichstand?
+    if (a === b) {
+      return
+    }
+    match.winner = a > b ? match.team1 : match.team2
 
     const list = [...groupMatches.value[groupName]]
     list[matchIndex] = match

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.http import JsonResponse
+from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -511,7 +512,7 @@ class TournamentViewSet(ViewSet):
                         match_obj.ko_round = round_name
                         match_obj.ko_bracket_type = bracket_type
                         match_obj.ko_match_index = ko_match_index
-                        match_obj.table = table
+                        match_obj.table = None if winner else table
                         match_obj.status = 'done' if winner else 'pending'
                         match_obj.save()
 
@@ -529,7 +530,7 @@ class TournamentViewSet(ViewSet):
                     team2_rerack_used=team2_rerack_used,
                     is_overtime=is_overtime,
                     ko_round=round_name, ko_bracket_type=bracket_type, ko_match_index=ko_match_index,
-                    table=table,
+                    table=None if winner else table,
                     status='done' if winner else 'pending',
                     history_team1=[], history_team2=[]
                 )
@@ -584,88 +585,6 @@ class TournamentViewSet(ViewSet):
     @action(detail=True, methods=['post'], url_path='start-ko-next-round')
     def start_ko_next_round(self, request, pk=None):
         t = self._get_or_404(pk)
-        next_main_round = request.data.get('next_main_round') or request.data.get('nextMainRound') or {}
-        placement_round = request.data.get('placement_round') or request.data.get('placementRound') or {}
-        rounds_to_materialize = []
-        if isinstance(next_main_round, dict):
-            rounds_to_materialize.append(next_main_round)
-        if isinstance(placement_round, dict):
-            rounds_to_materialize.append(placement_round)
-
-        for round_payload in rounds_to_materialize:
-            round_name = str(round_payload.get('round_name') or '')
-            bracket_type = str(round_payload.get('bracket_type') or 'main')
-            for idx, match_payload in enumerate(round_payload.get('matches') or []):
-                team1_name = match_payload.get('team1')
-                team2_name = match_payload.get('team2')
-                if not team1_name or not team2_name:
-                    continue
-                team1 = Team.objects.filter(tournament=t, name=team1_name).first()
-                team2 = Team.objects.filter(tournament=t, name=team2_name).first()
-                if not (team1 and team2):
-                    continue
-                ko_match_index = match_payload.get('ko_match_index', idx)
-                try:
-                    ko_match_index = int(ko_match_index)
-                except (TypeError, ValueError):
-                    ko_match_index = idx
-
-                match_obj, created = Match.objects.get_or_create(
-                    tournament=t,
-                    phase=Match.PHASE_KO,
-                    ko_bracket_type=bracket_type,
-                    ko_round=round_name,
-                    ko_match_index=ko_match_index,
-                    defaults={
-                        'team1': team1,
-                        'team2': team2,
-                        'winner': None,
-                        'cups_team1': 0,
-                        'cups_team2': 0,
-                        'cups_state_team1': [],
-                        'cups_state_team2': [],
-                        'team1_rerack_used': False,
-                        'team2_rerack_used': False,
-                        'is_overtime': False,
-                        'status': 'pending',
-                        'history_team1': [],
-                        'history_team2': [],
-                        'hit_history_team1': [],
-                        'hit_history_team2': [],
-                        'table': None,
-                    },
-                )
-                if not created:
-                    # Only remap unreleased matches that have not started yet.
-                    if match_obj.winner or match_obj.status == 'done':
-                        continue
-                    if match_obj.cups_team1 or match_obj.cups_team2 or match_obj.is_overtime:
-                        continue
-                    match_obj.team1 = team1
-                    match_obj.team2 = team2
-                    match_obj.winner = None
-                    match_obj.cups_team1 = 0
-                    match_obj.cups_team2 = 0
-                    match_obj.cups_state_team1 = []
-                    match_obj.cups_state_team2 = []
-                    match_obj.hit_history_team1 = []
-                    match_obj.hit_history_team2 = []
-                    match_obj.history_team1 = []
-                    match_obj.history_team2 = []
-                    match_obj.team1_rerack_used = False
-                    match_obj.team2_rerack_used = False
-                    match_obj.table = None
-                    match_obj.status = 'pending'
-                    match_obj.save(update_fields=[
-                        'team1', 'team2', 'winner',
-                        'cups_team1', 'cups_team2',
-                        'cups_state_team1', 'cups_state_team2',
-                        'hit_history_team1', 'hit_history_team2',
-                        'history_team1', 'history_team2',
-                        'team1_rerack_used', 'team2_rerack_used',
-                        'table', 'status',
-                    ])
-
         ko_state = get_full_state(t).get('ko_phase') or {}
         rounds = sort_ko_rounds(ko_state.get('rounds') or [])
         main_rounds = [r for r in rounds if (r.get('bracket_type') or 'main') != 'placement']
@@ -700,45 +619,51 @@ class TournamentViewSet(ViewSet):
         if active_main_round_index >= len(main_rounds):
             return Response({'error': 'active round out of range'}, status=400)
 
-        if active_stage_kind == 'placement':
-            if not placement_round_state:
-                return Response({'error': 'placement round not available'}, status=400)
-            if not is_ko_round_complete(placement_round_state):
-                return Response({'error': 'current round is not complete'}, status=400)
-            final_round = main_rounds[active_main_round_index]
-            final_available = any(
-                m.get('team1') and m.get('team2') and not m.get('winner')
-                for m in (final_round.get('matches') or [])
-            )
-            if not final_available:
-                return Response({'error': 'final not available'}, status=400)
-            next_index = active_main_round_index
-            next_stage_kind = 'main'
-        else:
-            current_round = main_rounds[active_main_round_index]
-            if not is_ko_round_complete(current_round):
-                return Response({'error': 'current round is not complete'}, status=400)
+        try:
+            with transaction.atomic():
+                if active_stage_kind == 'placement':
+                    if not placement_round_state:
+                        return Response({'error': 'placement round not available'}, status=400)
+                    if not is_ko_round_complete(placement_round_state):
+                        return Response({'error': 'current round is not complete'}, status=400)
 
-            if active_main_round_index >= len(main_rounds) - 1:
-                return Response({'error': 'no next round available'}, status=400)
+                    final_payload = _build_next_main_round_payload(rounds, active_main_round_index - 1)
+                    if final_payload:
+                        _materialize_ko_round(t, final_payload)
 
-            next_index = active_main_round_index + 1
-            next_stage_kind = 'main'
-            if next_index == len(main_rounds) - 1 and placement_round_state:
-                placement_available = any(
-                    m.get('team1') and m.get('team2') and not m.get('winner')
-                    for m in (placement_round_state.get('matches') or [])
+                    next_index = active_main_round_index
+                    next_stage_kind = 'main'
+                else:
+                    current_round = main_rounds[active_main_round_index]
+                    current_matches = current_round.get('matches') or []
+                    if not is_ko_round_complete(current_round):
+                        return Response({'error': 'current round is not complete'}, status=400)
+                    if len(current_matches) <= 1:
+                        return Response({'error': 'no next round available'}, status=400)
+
+                    next_main_payload = _build_next_main_round_payload(rounds, active_main_round_index)
+                    if not next_main_payload:
+                        return Response({'error': 'next round cannot be built'}, status=400)
+                    _materialize_ko_round(t, next_main_payload)
+
+                    next_index = active_main_round_index + 1
+                    next_stage_kind = 'main'
+
+                    placement_payload = _build_placement_round_payload(rounds, active_main_round_index)
+                    if placement_payload:
+                        _materialize_ko_round(t, placement_payload)
+                        next_stage_kind = 'placement'
+
+                set_ko_control_payload(
+                    t,
+                    {
+                        'active_main_round_index': next_index,
+                        'active_stage_kind': next_stage_kind,
+                    },
                 )
-                if placement_available:
-                    next_stage_kind = 'placement'
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=400)
 
-        set_ko_control_payload(
-            t,
-            {
-                'active_main_round_index': next_index,
-                'active_stage_kind': next_stage_kind,
-            },
-        )
         full_state = get_full_state(t)
         broadcast(t.id, 'ko_updated', full_state)
         return Response(full_state.get('ko_phase') or {})
@@ -813,7 +738,7 @@ class TournamentViewSet(ViewSet):
         match.winner = winner
         match.cups_team1 = int(body.get('cups_team1') or 0)
         match.cups_team2 = int(body.get('cups_team2') or 0)
-        match.table = table
+        match.table = None if winner else table
         match.status = 'done' if winner else 'pending'
         match.is_overtime = bool(body.get('is_overtime', match.is_overtime))
         cups_state1 = body.get('cups_state_team1')
@@ -824,7 +749,7 @@ class TournamentViewSet(ViewSet):
             match.cups_state_team2 = cups_state2
         match.save()
 
-        _apply_match_event(t, match, body)
+        _apply_match_event(t, match, body, user=request.user)
 
         full_state = get_full_state(t)
 
@@ -1141,6 +1066,248 @@ def _normalize_credit_allocations(raw_allocations):
         if player_name and count > 0:
             allocations.append((player_name, count))
     return allocations
+
+
+KO_ROUND_NAMES_BY_MATCH_COUNT = {
+    64: 'Runde der 128',
+    32: 'Runde der 64',
+    16: 'Runde der 32',
+    8: 'Achtelfinale',
+    4: 'Viertelfinale',
+    2: 'Halbfinale',
+    1: 'Finale',
+}
+
+
+def _ko_round_name_for_match_count(match_count):
+    match_count = int(match_count or 0)
+    return KO_ROUND_NAMES_BY_MATCH_COUNT.get(match_count, f'Runde mit {match_count} Spielen')
+
+
+def _ko_match_winner_name(match_data):
+    if not isinstance(match_data, dict):
+        return None
+    team1 = match_data.get('team1')
+    team2 = match_data.get('team2')
+    winner = match_data.get('winner')
+    if winner in {team1, team2}:
+        return winner
+    if team1 and not team2:
+        return team1
+    if team2 and not team1:
+        return team2
+    return None
+
+
+def _ko_match_loser_name(match_data):
+    if not isinstance(match_data, dict):
+        return None
+    team1 = match_data.get('team1')
+    team2 = match_data.get('team2')
+    winner = _ko_match_winner_name(match_data)
+    if not winner:
+        return None
+    if winner == team1 and team2:
+        return team2
+    if winner == team2 and team1:
+        return team1
+    return None
+
+
+def _validate_ko_pairings(round_name, pairings):
+    seen_teams = set()
+    for pairing in pairings or []:
+        team1 = pairing.get('team1')
+        team2 = pairing.get('team2')
+        if not team1 or not team2:
+            raise ValueError(f'{round_name}: unvollständige Paarung erkannt.')
+        if team1 == team2:
+            raise ValueError(f'{round_name}: {team1} wäre gegen sich selbst gepaart.')
+        for team in (team1, team2):
+            if team in seen_teams:
+                raise ValueError(f'{round_name}: {team} taucht mehrfach in derselben Runde auf.')
+            seen_teams.add(team)
+
+
+def _build_next_main_round_payload(rounds, source_main_round_index):
+    main_rounds = [r for r in sort_ko_rounds(rounds or []) if (r.get('bracket_type') or 'main') != 'placement']
+    if source_main_round_index < 0 or source_main_round_index >= len(main_rounds):
+        raise ValueError('Aktive KO-Runde liegt außerhalb des gültigen Bereichs.')
+
+    source_round = main_rounds[source_main_round_index]
+    source_matches = source_round.get('matches') or []
+    if len(source_matches) <= 1:
+        return None
+
+    target_match_count = max(1, len(source_matches) // 2)
+    existing_target_round = main_rounds[source_main_round_index + 1] if source_main_round_index + 1 < len(main_rounds) else None
+    round_name = (
+        existing_target_round.get('round_name')
+        if existing_target_round and existing_target_round.get('round_name')
+        else _ko_round_name_for_match_count(target_match_count)
+    )
+
+    pairings = []
+    for idx in range(target_match_count):
+        source_a = source_matches[idx * 2] if idx * 2 < len(source_matches) else None
+        source_b = source_matches[idx * 2 + 1] if idx * 2 + 1 < len(source_matches) else None
+        team1 = _ko_match_winner_name(source_a)
+        team2 = _ko_match_winner_name(source_b)
+        if not team1 or not team2:
+            raise ValueError(f'{round_name} kann noch nicht gebildet werden, weil Sieger fehlen.')
+        pairings.append({
+            'ko_match_index': idx,
+            'team1': team1,
+            'team2': team2,
+        })
+
+    _validate_ko_pairings(round_name, pairings)
+    return {
+        'bracket_type': 'main',
+        'round_name': round_name,
+        'matches': pairings,
+    }
+
+
+def _build_placement_round_payload(rounds, semifinal_main_round_index):
+    main_rounds = [r for r in sort_ko_rounds(rounds or []) if (r.get('bracket_type') or 'main') != 'placement']
+    if semifinal_main_round_index < 0 or semifinal_main_round_index >= len(main_rounds):
+        raise ValueError('Halbfinale konnte für Platz 3 nicht bestimmt werden.')
+
+    semifinal_round = main_rounds[semifinal_main_round_index]
+    semifinal_matches = semifinal_round.get('matches') or []
+    if len(semifinal_matches) != 2:
+        return None
+
+    team1 = _ko_match_loser_name(semifinal_matches[0])
+    team2 = _ko_match_loser_name(semifinal_matches[1])
+    if not team1 or not team2:
+        raise ValueError('Spiel um Platz 3 kann noch nicht gebildet werden, weil Halbfinal-Verlierer fehlen.')
+
+    placement_round = next(
+        (r for r in sort_ko_rounds(rounds or []) if (r.get('bracket_type') or 'main') == 'placement'),
+        None,
+    )
+    round_name = placement_round.get('round_name') if placement_round and placement_round.get('round_name') else 'Spiel um Platz 3'
+    pairings = [{
+        'ko_match_index': 0,
+        'team1': team1,
+        'team2': team2,
+    }]
+    _validate_ko_pairings(round_name, pairings)
+    return {
+        'bracket_type': 'placement',
+        'round_name': round_name,
+        'matches': pairings,
+    }
+
+
+def _materialize_ko_round(tournament, round_payload):
+    if not isinstance(round_payload, dict):
+        return
+
+    matches_payload = round_payload.get('matches') or []
+    if not matches_payload:
+        return
+
+    round_name = str(round_payload.get('round_name') or '')
+    bracket_type = str(round_payload.get('bracket_type') or 'main')
+
+    existing_round_matches = list(
+        Match.objects.filter(
+            tournament=tournament,
+            phase=Match.PHASE_KO,
+            ko_bracket_type=bracket_type,
+            ko_round=round_name,
+        ).select_related('team1', 'team2')
+    )
+    existing_by_index = {match.ko_match_index: match for match in existing_round_matches}
+    seen_match_ids = set()
+
+    for idx, match_payload in enumerate(matches_payload):
+        team1_name = match_payload.get('team1')
+        team2_name = match_payload.get('team2')
+        if not team1_name or not team2_name:
+            raise ValueError(f'{round_name}: unvollständige Paarung in Match {idx + 1}.')
+
+        team1 = Team.objects.filter(tournament=tournament, name=team1_name).first()
+        team2 = Team.objects.filter(tournament=tournament, name=team2_name).first()
+        if not (team1 and team2):
+            raise ValueError(f'{round_name}: Team {team1_name if not team1 else team2_name} wurde nicht gefunden.')
+
+        ko_match_index = match_payload.get('ko_match_index', idx)
+        try:
+            ko_match_index = int(ko_match_index)
+        except (TypeError, ValueError):
+            ko_match_index = idx
+
+        match_obj = existing_by_index.get(ko_match_index)
+        if match_obj and _ko_match_has_started_db(match_obj):
+            if match_obj.team1_id != team1.id or match_obj.team2_id != team2.id:
+                raise ValueError(f'{round_name}: bereits gestartetes Match {ko_match_index + 1} passt nicht mehr zum Turnierbaum.')
+            seen_match_ids.add(match_obj.id)
+            continue
+
+        if match_obj:
+            match_obj.team1 = team1
+            match_obj.team2 = team2
+            match_obj.winner = None
+            match_obj.cups_team1 = 0
+            match_obj.cups_team2 = 0
+            match_obj.cups_state_team1 = []
+            match_obj.cups_state_team2 = []
+            match_obj.hit_history_team1 = []
+            match_obj.hit_history_team2 = []
+            match_obj.history_team1 = []
+            match_obj.history_team2 = []
+            match_obj.team1_rerack_used = False
+            match_obj.team2_rerack_used = False
+            match_obj.is_overtime = False
+            match_obj.table = None
+            match_obj.status = 'pending'
+            match_obj.save(update_fields=[
+                'team1', 'team2', 'winner',
+                'cups_team1', 'cups_team2',
+                'cups_state_team1', 'cups_state_team2',
+                'hit_history_team1', 'hit_history_team2',
+                'history_team1', 'history_team2',
+                'team1_rerack_used', 'team2_rerack_used',
+                'is_overtime', 'table', 'status',
+            ])
+            seen_match_ids.add(match_obj.id)
+            continue
+
+        created = Match.objects.create(
+            tournament=tournament,
+            phase=Match.PHASE_KO,
+            team1=team1,
+            team2=team2,
+            winner=None,
+            cups_team1=0,
+            cups_team2=0,
+            cups_state_team1=[],
+            cups_state_team2=[],
+            hit_history_team1=[],
+            hit_history_team2=[],
+            history_team1=[],
+            history_team2=[],
+            team1_rerack_used=False,
+            team2_rerack_used=False,
+            is_overtime=False,
+            ko_round=round_name,
+            ko_bracket_type=bracket_type,
+            ko_match_index=ko_match_index,
+            table=None,
+            status='pending',
+        )
+        seen_match_ids.add(created.id)
+
+    for stale_match in existing_round_matches:
+        if stale_match.id in seen_match_ids:
+            continue
+        if _ko_match_has_started_db(stale_match):
+            raise ValueError(f'{round_name}: altes gestartetes Match verhindert eine saubere Neubildung.')
+        stale_match.delete()
 
 
 def _ko_match_has_started_db(match):

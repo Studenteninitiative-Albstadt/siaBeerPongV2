@@ -82,6 +82,9 @@
             <div class="text-secondary small">
               {{ currentRoundProgressText }}
             </div>
+            <div v-if="stageActionError" class="text-danger small mt-2">
+              {{ stageActionError }}
+            </div>
           </div>
           <div class="d-flex flex-wrap gap-2 align-items-center">
             <span
@@ -217,6 +220,7 @@
             @cup-hit="onKoCupHit"
             @undo="onKoUndo"
             @rerack="onKoRerack"
+            @forfeit="onKoForfeit"
           />
         </div>
       </div>
@@ -324,6 +328,7 @@ const selectedKoPlayer = ref(null)
 
 /** Spielabschluss-Dialog: { matchId, rIdx, mIdx, teamKey, step, history } | null */
 const pendingKoConclusion = ref(null)
+const stageActionError = ref('')
 
 /* Settings */
 const baseCupsPerGame = ref(6)
@@ -907,6 +912,7 @@ function finishKoConclusion(confirm) {
   // teamKey = team whose cups were all hit (the loser); winner is the OTHER team
   m.winner = teamKey === 'team1' ? m.team2 : m.team1
   m.status = 'done'
+  m.table_no = null
   pendingKoConclusion.value = null
   recalcPropagation(rIdx)
   saveSingleKoMatch(rIdx, mIdx, m)
@@ -949,6 +955,38 @@ function onKoRerack({ matchId, teamKey, newState }) {
   m[stateKey] = [...newState]
   m[`rerack_used_${teamKey}`] = true
   saveSingleKoMatch(rIdx, mIdx, m)
+}
+
+function onKoForfeit({ matchId, teamKey }) {
+  const { rIdx, mIdx, m } = _findKoMatch(matchId)
+  if (!m) return
+
+  const losingTeamName = teamKey === 'team1' ? m.team1 : m.team2
+  const winnerTeamName = teamKey === 'team1' ? m.team2 : m.team1
+  if (!losingTeamName || !winnerTeamName) return
+
+  m.winner = winnerTeamName
+  m.status = 'done'
+  m.table_no = null
+
+  if (pendingKoShooter.value?.matchId === matchId) {
+    pendingKoShooter.value = null
+    selectedKoPlayer.value = null
+  }
+  if (pendingKoConclusion.value?.matchId === matchId) {
+    pendingKoConclusion.value = null
+  }
+
+  koUndoHistory.value.delete(`${matchId}:team1`)
+  koUndoHistory.value.delete(`${matchId}:team2`)
+
+  recalcPropagation(rIdx)
+  saveSingleKoMatch(rIdx, mIdx, m, {
+    action_type: 'forfeit',
+    team_key: teamKey,
+    team_name: losingTeamName,
+    winner_name: winnerTeamName,
+  })
 }
 
 /* Computed Helpers */
@@ -1357,20 +1395,14 @@ async function saveToServer() {
 async function startNextKoRound() {
   if (!canStartNextKoRound.value) return
   loading.value = true
+  stageActionError.value = ''
   try {
-    const mainInfos = getKoMainRoundInfos(roundsLocal)
-    const nextMainRoundPayload = buildNextMainRoundForRelease(activeMainRoundIndex.value + 1)
-    const placementRoundPayload = (activeMainRoundIndex.value + 1 === mainInfos.length - 1)
-      ? buildPlacementRoundForRelease()
-      : null
     const res = await fetch(`${API}/tournaments/${props.tournamentId}/start-ko-next-round`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         active_main_round_index: activeMainRoundIndex.value,
         active_stage_kind: activeStageKind.value,
-        next_main_round: nextMainRoundPayload,
-        placement_round: placementRoundPayload,
       }),
     })
     const data = await res.json().catch(() => null)
@@ -1380,6 +1412,7 @@ async function startNextKoRound() {
     activeStageKind.value = data?.active_stage_kind ?? data?.activeStageKind ?? activeStageKind.value
     store.applyState({ ko_phase: data || {} })
   } catch (e) {
+    stageActionError.value = e?.message || 'Nächste KO-Runde konnte nicht gestartet werden.'
     console.error(e)
   } finally {
     loading.value = false
@@ -1388,9 +1421,13 @@ async function startNextKoRound() {
 
 async function saveSingleKoMatch(rIdx, mIdx, m, eventData = null) {
   try {
-    const tableNo = Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0
-      ? Number(m.table_no)
-      : (koTableMap.value.get(`${rIdx}:${mIdx}`) ?? null)
+    const tableNo = m.winner
+      ? null
+      : (
+          Number.isFinite(Number(m.table_no)) && Number(m.table_no) > 0
+            ? Number(m.table_no)
+            : (koTableMap.value.get(`${rIdx}:${mIdx}`) ?? null)
+        )
     m.table_no = tableNo
     const body = {
       match_id: m.id ?? null,

@@ -198,6 +198,7 @@
             @cup-hit="onCupHit"
             @undo="onUndo"
             @rerack="onRerack"
+            @forfeit="onForfeit"
           />
         </div>
       </div>
@@ -566,8 +567,10 @@ function finishConclusion(actuallyFinish) {
   if (actuallyFinish) {
     const m = { ...matchState.value }
     const a = safeNum(m.cups_team1), b = safeNum(m.cups_team2)
-    m.winner = a >= b ? m.team1 : m.team2
+    if (a === b) return
+    m.winner = a > b ? m.team1 : m.team2
     m.status = 'done'
+    m.table_no = null
     matchState.value = m
     _saveMatch({ action_type: 'finished' })
   }
@@ -622,6 +625,29 @@ function onRerack({ teamKey, newState }) {
   m[rerackKey] = true
   matchState.value = m
   _saveMatch({ action_type: 'rerack', team_key: teamKey })
+}
+
+function onForfeit({ teamKey }) {
+  if (!matchState.value) return
+  const m = { ...matchState.value }
+  const losingTeamName = teamKey === 'team1' ? m.team1 : m.team2
+  const winnerTeamName = teamKey === 'team1' ? m.team2 : m.team1
+  if (!losingTeamName || !winnerTeamName) return
+
+  m.winner = winnerTeamName
+  m.status = 'done'
+  m.table_no = null
+  matchState.value = m
+  pendingShooter.value = null
+  selectedPlayer.value = null
+  pendingConclusion.value = null
+
+  _saveMatch({
+    action_type: 'forfeit',
+    team_key: teamKey,
+    team_name: losingTeamName,
+    winner_name: winnerTeamName,
+  })
 }
 
 // ── API save ──────────────────────────────────────────────────────────────────

@@ -33,12 +33,17 @@
           <button class="btn btn-sm btn-outline-danger" @click="cancelRerack">Abbruch</button>
         </div>
         <div v-else class="mt-3">
-          <button class="btn btn-sm btn-outline-warning me-2" @click="undo('team1')" :disabled="rerackMode === 'team2'">
-            ↶ Undo
-          </button>
-          <button class="btn btn-sm btn-outline-info" @click="startRerack('team1')" :disabled="team1RerackUsed || rerackMode === 'team2'">
-            Re-Rack
-          </button>
+          <div class="d-flex flex-wrap justify-content-center gap-2">
+            <button class="btn btn-sm btn-outline-warning" @click="undo('team1')" :disabled="rerackMode === 'team2'">
+              ↶ Undo
+            </button>
+            <button class="btn btn-sm btn-outline-info" @click="startRerack('team1')" :disabled="team1RerackUsed || rerackMode === 'team2'">
+              Re-Rack
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @click="forfeit('team1')" :disabled="rerackMode === 'team2'">
+              Aufgabe
+            </button>
+          </div>
         </div>
       </div>
 
@@ -79,12 +84,17 @@
           <button class="btn btn-sm btn-outline-danger" @click="cancelRerack">Abbruch</button>
         </div>
         <div v-else class="mt-3">
-          <button class="btn btn-sm btn-outline-warning me-2" @click="undo('team2')" :disabled="rerackMode === 'team1'">
-            ↶ Undo
-          </button>
-          <button class="btn btn-sm btn-outline-info" @click="startRerack('team2')" :disabled="team2RerackUsed || rerackMode === 'team1'">
-            Re-Rack
-          </button>
+          <div class="d-flex flex-wrap justify-content-center gap-2">
+            <button class="btn btn-sm btn-outline-warning" @click="undo('team2')" :disabled="rerackMode === 'team1'">
+              ↶ Undo
+            </button>
+            <button class="btn btn-sm btn-outline-info" @click="startRerack('team2')" :disabled="team2RerackUsed || rerackMode === 'team1'">
+              Re-Rack
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @click="forfeit('team2')" :disabled="rerackMode === 'team1'">
+              Aufgabe
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -108,7 +118,7 @@ const props = defineProps({
   team2RerackUsed: Boolean
 })
 
-const emit = defineEmits(['cup-hit', 'undo', 'rerack'])
+const emit = defineEmits(['cup-hit', 'undo', 'rerack', 'forfeit'])
 
 const draggingCup = ref(null)
 const rerackMode = ref(null) // 'team1', 'team2' oder null
@@ -191,6 +201,10 @@ function handleCupHit(teamKey, cupIndex) {
 
 function undo(teamKey) {
   emit('undo', { matchId: props.matchId, teamKey })
+}
+
+function forfeit(teamKey) {
+  emit('forfeit', { matchId: props.matchId, teamKey })
 }
 </script>
 
